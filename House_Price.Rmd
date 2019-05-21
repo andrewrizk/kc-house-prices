@@ -1,0 +1,961 @@
+---
+title: "House Price Prediction"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Load Libraries
+```{r Libraries to be used for this project, Warnig=FALSE}
+library(data.table)
+library(DataExplorer)
+library(ggplot2)
+library(plyr)
+library(tidyr)
+library(dplyr)
+library(knitr)     
+library(moments)   
+library(e1071)     
+library(glmnet)    
+library(caret)
+library(corrplot)
+library(ggloop)
+library(leaflet)
+library(RColorBrewer)
+library(stringr)
+library(randomForest)
+library(xgboost)
+library(rpart)
+library(partykit)
+library(rpart.plot)
+library(ranger)
+```
+
+#### Load Datasets
+```{r Datasets}
+house_train <- read.csv("house_price_train.csv", header = T)
+house_test <- read.csv("house_price_test.csv", header = T)
+
+# Since the test set has no price column, we will create one before combining both
+house_test$price <- NA
+
+# We will add a column with a factor of train/test to help with the dataset splitting further
+house_train$train_test <- "train"
+house_test$train_test <- "test"
+
+# Combining both datasets
+house_dataset <- rbind(house_train, house_test)
+cat("The train set has ", dim(house_train)[1], "rows and ", dim(house_train)[2], "columns, ")
+cat("The test set has ", dim(house_test)[1], "rows and ", dim(house_test)[2], "columns, ")
+cat("The combined dataset has ", dim(house_dataset)[1], "rows and ", dim(house_dataset)[2], "columns")
+
+```
+
+#### Feature Removal
+We can identify some features that don't add any value to the dataset due to their nature.
+The variable 'Id' is a key and will not have any impact in the final predicion.
+
+```{r Feature removal}
+house_dataset <- house_dataset[,-which(names(house_dataset) == "id")]
+```
+
+#### NA Discovery
+We need to clean NA values in all the columns and fill the empty cells with proper judgements based on each variable's condition.
+First, we explore which columns have missing values.
+
+```{r}
+# Using DataExplorer Library
+plot_missing(house_dataset)
+
+na.cols <- which(colSums(is.na(house_dataset)) > 0)
+paste('There are', length(na.cols), 'columns with missing values')
+sort(colSums(sapply(house_dataset[na.cols], is.na)), decreasing = TRUE)
+
+```
+Therefore no missing values are present in the dataset and we can continue with feature engineering
+
+#### Data Structure
+Now we will check the structure of the dataset.
+```{r Dataset Structure and Features}
+# visualizing the dataset to know the structure and components of each variable
+str(house_dataset)
+summary(house_dataset)
+```
+
+#### Factorize Numerical to Categories
+
+There are some numerical features that should be perseved as categorical ones, in order to gasp correctly the information inside those columns.
+If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they wont be used in any calculation. Note that "yr_built", "yr_renovated" will be factorized later after the EDA.
+
+```{r}
+#Specifying the columns that are counted as numeric
+columns <- c("condition", "grade", "waterfront", "zipcode")
+house_dataset[columns] <- lapply(house_dataset[columns], factor)
+```
+
+#### EDA
+
+```{r Structure and Target Variable}
+#Structure of dataset after factorizing
+str(house_dataset)
+
+#Histogram to see the distribution of the house prices
+ggplot(house_train,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+# We notice the skewness of the prices to the right so we can do a log transformation to the price
+ggplot(house_train,aes(x= log10(price)))+geom_histogram(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+# Using the log transormation we notice that the prices mostly range from 5 to 6.5 million
+
+```
+
+We will now create a new column to categorize the prices into 4 categories (Cheap, Medium, Expensive, Very Expensive) and visualize the results using leaflet
+
+```{r}
+# house_train_temp <- house_train
+# quantile(house_train_temp$price)
+# 
+# #Using the above quantiles we can categorize the houses to 4 categories
+# house_train_temp <- house_train_temp %>% mutate(price_category = ifelse(price <= 320000, "Cheap",
+#                                           ifelse(price > 320000 &
+#                                                    price <= 450000, "Average",
+#                                                  ifelse(price > 450000 & 
+#                                                           price <= 645500, "Expensive",
+#                                                         ifelse(price > 645000, "Very Expensive", NA)))))
+# 
+# 
+# sample <-house_train_temp[sample(nrow(house_train_temp), 500), c("long", "lat", "price_category")] 
+# 
+# getColor <- function(house_train_temp) {
+#   sapply(house_train_temp$price_category, function(price_category) {
+#     if(as.character(price_category) == "Cheap") {
+#       "green"
+#     } else if(as.character(price_category) == "Average") {
+#       "yellow"
+#     } else if(as.character(price_category) == "Expensive") {
+#       "orange"
+#     } else {
+#       "red"
+#     } })
+# }
+# 
+# icons <- awesomeIcons(
+#   icon = 'icon',
+#   iconColor = 'black',
+#   library = 'ion',
+#   markerColor = getColor(house_train_temp)
+# )
+
+# leaflet(data = house_train_temp) %>% addTiles() %>% setView(lng = -122, lat = 47.8, zoom = 7.5)%>%
+#   addAwesomeMarkers(~long, ~lat, icon=icons, popup =~price_category)
+
+```
+
+
+We will now visualize each numeric feature with the target variable to see how the price varies with the variation in the independent variables.
+
+```{r Visualizing Variables with Price}
+
+# We will now visualize all numeric columns against the house price
+numeric_var <- names(house_train)[which(sapply(house_train, is.numeric))]
+numeric_var
+
+for (i in seq_along(numeric_var)) {
+      plt <- ggplot(data = house_train, aes_string(numeric_var[i], 'price')) +
+    geom_point(color = "dodgerblue3") +
+      theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price')
+  print(plt)
+}
+
+
+```
+
+Now that we have a general idea about how the price varies with each variable, we will take each variable and analyze it separately with the price.
+
+
+```{r Bedrooms}
+table(house_dataset$bedrooms)
+#From the above table we can see the majority of house has between 1-8 or 1-9 bedrooms and a few outliers having more than that
+
+ggplot(house_dataset, aes(x=bedrooms)) + geom_histogram(fill="dodgerblue3", stat = "count") +
+  xlab("Bedrooms") + ylab("Count") + theme_minimal() + labs(title = "Count vs # of Bedrooms") +
+  scale_x_continuous(limits = c(0,9), breaks = 9)
+
+
+#Now visualizing with the log of the price
+ggplot(data = house_train, aes(bedrooms, log10(price))) +
+    geom_point(color = "dodgerblue3") + theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Log_Price') + xlab('Bedrooms') + geom_smooth(method="lm",se=F, color = "red") +
+    labs(title = "Log Price vs # of Bedrooms")
+
+#We can notice the point of the house containing 33 bedrooms so we will plots the same graph again wihtout this outlier to adjust the linear fit
+ggplot(data = house_train %>% filter(bedrooms<30), aes(bedrooms, log10(price))) +
+    geom_point(color = "dodgerblue3") + theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Log_Price') + xlab('Bedrooms') + geom_smooth(method="lm",se=F, color = "red") +
+    labs(title = "Log Price vs # of Bedrooms")
+
+#To find the average price for the house based on the number of bedrooms 
+bedrooms = house_train %>% filter(bedrooms <33) %>% group_by(bedrooms) %>% summarise(average_price = mean(price))
+ggplot(bedrooms, aes(bedrooms, average_price)) + geom_col(fill = "dodgerblue3") + theme_minimal() +ylab('Average Price $') + xlab('Bedrooms')
+
+getPalette = colorRampPalette(brewer.pal(8, "Spectral"))
+colourCount <- 12
+
+ggplot(house_train[house_train$bedrooms < 33,], aes(bedrooms,log10(price),fill=factor(bedrooms)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme_minimal()+labs(x="Bedrooms", y="Log_Price", fill = "Bedrooms")
+
+```
+
+```{r Bathrooms}
+table(house_dataset$bathrooms)
+#From the above table we can see the houses have a range from 0.5 to 8 bathrooms
+ggplot(house_dataset, aes(x=bathrooms)) + geom_bar(fill="dodgerblue3", stat = "count") +
+  xlab("Bathrooms") + ylab("Count") + theme_minimal() + labs(title = "Count vs # of Bathrooms")
+
+
+#Now visualizing with the log of the price
+ggplot(data = house_train, aes(bathrooms, log10(price))) +
+    geom_point(color = "dodgerblue3") + theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Log_Price') + xlab('Bathrooms') + geom_smooth(method="lm",se=F, color = "red") +
+    labs(title = "Log Price vs # of Bathrooms")
+
+#To find the average price for the house based on the number of bathrooms 
+bathrooms = house_train %>% group_by(bathrooms) %>% summarise(average_price = mean(price))
+ggplot(bathrooms, aes(bathrooms, average_price)) + geom_col(fill = "dodgerblue3") + theme_minimal() + ylab('Average Price $') + xlab('Bathrooms') +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+getPalette = colorRampPalette(brewer.pal(8, "Spectral"))
+colourCount <- 29
+
+ggplot(house_train,aes(bathrooms,log10(price),fill=factor(bathrooms)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme_minimal()+labs(x="Bathrooms", y="Log_Price", fill = "Bathrooms")
+
+```
+
+```{r Floors}
+table(house_dataset$floors)
+
+ggplot(house_dataset, aes(floors)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('Floors')
+
+ggplot(house_train %>% group_by(floors) %>% summarise(average_price = mean(price)), aes(floors, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('Floors') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+#Now visualizing with the log of the price
+ggplot(data = house_train, aes(floors, log10(price))) +
+    geom_point(color = "dodgerblue3") + theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Log_Price') + xlab('Floors') + geom_smooth(method="lm",se=F, color = "red") +
+    labs(title = "Log Price vs # of Floors")
+
+getPalette = colorRampPalette(brewer.pal(8, "Spectral"))
+colourCount <- 6
+
+ggplot(house_train,aes(floors,log10(price),fill=factor(floors)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme_minimal()+labs(x="Floors", y="Log_Price", fill = "Floors")
+
+```
+
+
+
+```{r House Condition}
+table(house_dataset$condition)
+
+ggplot(house_dataset, aes(condition)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('House Condition')
+
+ggplot(house_train %>% group_by(condition) %>% summarise(average_price = mean(price)), aes(condition, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('Condition') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+ggplot(house_train,aes(condition,log10(price),fill=factor(condition)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ theme_minimal()+labs(x="Condition", y="Log_Price", fill = "Condition")
+
+```
+
+
+```{r Water Front}
+table(house_dataset$waterfront)
+# Most of the houses in the dataset don't have a waterfront, only 163 of all the houses do.
+
+ggplot(house_dataset, aes(waterfront)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('WaterFront')
+
+ggplot(house_train %>% group_by(waterfront) %>% summarise(average_price = mean(price)), aes(waterfront, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('WaterFront') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+ggplot(house_train,aes(waterfront,log10(price),fill=factor(waterfront)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ theme_minimal()+labs(x="WaterFront", y="Log_Price", fill = "WaterFront")
+```
+
+```{r Sqft_living}
+
+ggplot(data = house_train, aes(sqft_living, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+
+```{r Sqft_living15}
+# Living room area in 2015(implies-- some renovations) This might or might not have affected the lotsize area
+
+ggplot(data = house_train, aes(sqft_living15, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+
+```{r Sqft_lot}
+
+ggplot(data = house_train, aes(sqft_lot, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+```{r Sqft_lot15}
+
+# Sqft_lot15 is the lot area in 2015 (implies-- some renovations) This might or might not have affected the lotsize area
+
+ggplot(data = house_train, aes(sqft_lot15, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+
+```{r Sqft_above}
+
+ggplot(data = house_train, aes(sqft_above, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+```{r Sqft_basement}
+
+ggplot(data = house_train, aes(sqft_basement, price)) +
+    geom_point(color = "dodgerblue3") +
+    theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Price') +
+    geom_smooth(method="lm",se=F, color = "red")
+
+```
+
+```{r Views}
+
+#How many times the house has been viewed
+table(house_dataset$view)
+
+ggplot(house_dataset, aes(view)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('View')
+# Most of the houses have not been viewed
+
+ggplot(house_train %>% group_by(view) %>% summarise(average_price = mean(price)), aes(view, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('View') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+```
+
+```{r Grade}
+
+table(house_dataset$grade)
+
+ggplot(house_dataset, aes(grade)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('Grade')
+
+ggplot(house_train %>% group_by(grade) %>% summarise(average_price = mean(price)), aes(grade, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('Grade') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+#Now visualizing with the log of the price
+ggplot(data = house_train, aes(grade, log10(price))) +
+    geom_point(color = "dodgerblue3") + theme_minimal() +
+    scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+    scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + ylab('Log_Price') + xlab('Grade') + geom_smooth(method="lm",se=F, color = "red") +
+    labs(title = "Log Price vs # of Floors")
+
+colourCount = 11
+
+ggplot(house_train,aes(grade,log10(price),fill=factor(grade)))+
+geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ theme_minimal()+labs(x="Grade", y="Log_Price", fill = "Grade")
+
+```
+
+```{r Year Built}
+table(house_dataset$yr_built)
+
+# Since there is a huge variation in the year build variable, we can bin this feature to visualize the count. 
+yr_bin = house_dataset %>% mutate(year_built_bin = ifelse(yr_built >= 1900 & yr_built < 1910, "1900s",
+                                                 ifelse(yr_built >= 1910 & yr_built < 1920, "1910s",
+                                                        ifelse(yr_built >= 1920 & yr_built < 1930, "1920s",
+                                                               ifelse(yr_built >= 1930 & yr_built < 1940, "1930s",
+                                                                      ifelse(yr_built >= 1940 & yr_built < 1950, "1940s",
+                                                                             ifelse(yr_built >= 1950 & yr_built < 1960, "1950s",
+                                                                                    ifelse(yr_built >= 1960 & yr_built < 1970, "1960s",
+                                                                                           ifelse(yr_built >= 1970 & yr_built < 1980, "1970s",
+                                                                                                  ifelse(yr_built >= 1980 & yr_built < 1990, "1980s",
+                                                                                                         ifelse(yr_built >= 1990 & yr_built < 2000, "1990s",
+                                                                                                                ifelse(yr_built >= 2000, "2000s", NA))))))))))))
+
+ggplot(yr_bin, aes(year_built_bin)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('Year Built')
+
+
+ggplot(yr_bin[1:17227,] %>% group_by(year_built_bin) %>% summarise(average_price = mean(price)), aes(year_built_bin, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('Year Built') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+```
+
+```{r Year Renovated}
+table(house_dataset$yr_renovated)
+
+# Since there is a huge variation in the year build variable, we can bin this feature to visualize the count. 
+yr_ren_bin = house_dataset %>% mutate(year_ren_bin = ifelse(yr_renovated >= 1900 & yr_renovated < 1910, "1900s",
+                                                 ifelse(yr_renovated >= 1910 & yr_renovated < 1920, "1910s",
+                                                        ifelse(yr_renovated >= 1920 & yr_renovated < 1930, "1920s",
+                                                               ifelse(yr_renovated >= 1930 & yr_renovated < 1940, "1930s",
+                                                                      ifelse(yr_renovated >= 1940 & yr_renovated < 1950, "1940s",
+                                                                             ifelse(yr_renovated >= 1950 & yr_renovated < 1960, "1950s",
+                                                                                    ifelse(yr_renovated >= 1960 & yr_renovated < 1970, "1960s",
+                                                                                           ifelse(yr_renovated >= 1970 & yr_renovated < 1980, "1970s",
+                                                                                                  ifelse(yr_renovated >= 1980 & yr_renovated < 1990, "1980s",
+                                                                                                         ifelse(yr_renovated >= 1990 & yr_renovated < 2000, "1990s",
+                                                                                                                ifelse(yr_renovated >= 2000, "2000s", NA))))))))))))
+
+ggplot(yr_ren_bin, aes(year_ren_bin)) + geom_bar(fill = "dodgerblue3") + theme_minimal() +ylab('Count') + xlab('Year Renovated')
+
+
+ggplot(yr_ren_bin[1:17227,] %>% group_by(year_ren_bin) %>% summarise(average_price = mean(price)), aes(year_ren_bin, average_price)) + geom_col(fill = "dodgerblue3") + ylab('Average Price $') + xlab('Year Renovated') + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+```
+
+```{r}
+quantile(house_train$price)
+# We can bin the prices using the above quantiles or using to selected ranges visualize counts per bin
+
+# Lets look at the price distribution again
+ggplot(house_train,aes(x=price))+geom_histogram(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  theme_minimal() + xlab('Price') + ylab('Count')
+
+# Most houses lie in the range below 1,000,000
+house_dataset <- house_dataset %>% mutate(price_bin = ifelse(price < 500000, "Less than 500000",
+                                                             ifelse(price >= 500000 & price < 750000, "Between 500000 & 750000",
+                                                                    ifelse(price >= 750000 & price < 1000000, "Between 750000 & 1000000",
+                                                                           ifelse(price >= 1000000 & price < 2000000, "Between 1 & 2 Million",
+                                                                                  ifelse(price >= 2000000, "More than 2 Million", NA))))))
+
+ggplot(house_dataset[house_dataset$train_test == "train",], aes(price_bin)) + geom_bar(fill = "dodgerblue3") +
+  theme_minimal() +ylab('Count') + xlab('Price Bin') + theme(axis.text.x = element_text(angle = 18, hjust = 1, vjust = 0.5)) + 
+  scale_x_discrete(limits=c("Less than 500000", "Between 500000 & 750000", "Between 750000 & 1000000", "Between 1 & 2 Million", "More than 2 Million"))
+
+```
+
+
+#### Feature Engineering/Creation
+
+```{r}
+
+house_dataset$total_sf15 <- house_dataset$sqft_living15 + house_dataset$sqft_lot15
+
+# We will extract the year the house was sold from the date
+house_dataset$date <- as.character(house_dataset$date)
+house_dataset = house_dataset %>% mutate(YearSold = str_sub(date, -4, -1))
+house_dataset$YearSold <- as.numeric(house_dataset$YearSold)
+
+
+# We will create a dummy variable NewHouse using the YearSold and YearBuild. If the two values are equal then it's a new house and will be evaluated as 1 otherwise it will be 0
+house_dataset$NewHouse <- ifelse(house_dataset$YearSold == house_dataset$yr_built, 1, 0)
+table(house_dataset$NewHouse) #430 New Houses
+house_dataset$NewHouse <- as.factor(house_dataset$NewHouse)
+
+#We will check the age of the house. If the year of rennovation is 0 then it means that the house has not been rennovated and the age will be the YearSold - yr_build, 
+#If the year of rennovation is present, then the age will be the year sold minus the year of rennovation
+house_dataset <- house_dataset %>% mutate(Age = ifelse(yr_renovated != 0, YearSold - yr_renovated, YearSold - yr_built))
+
+#### Factorize the remaining features
+house_dataset$yr_built <- as.factor(house_dataset$yr_built)
+house_dataset$yr_renovated <- as.factor(house_dataset$yr_renovated)
+house_dataset$YearSold <- as.factor(house_dataset$YearSold)
+house_dataset$train_test <- as.factor(house_dataset$train_test)
+house_dataset$price_bin <- as.factor(house_dataset$price_bin)
+house_dataset$view <- as.factor(house_dataset$view)
+
+# Check the structure of the dataset
+str(house_dataset)
+
+#Removing Features
+house_dataset <- house_dataset[,-which(names(house_dataset) == "date")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "lat")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "long")]
+# house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_built")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_renovated")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "YearSold")]
+
+
+```
+
+#### Correlations
+
+Correlations are used to identify which variable has more correlation with our target variable. We will explore correlations using a heat map for a better understanding of the data.
+Again, it is important to note that some categorical features correlations are calculated within the heat map due to their numeric nature. So we will not take them into consideration.
+
+```{r}
+#create a set of numeric variables to see correlations with the sale price
+numeric_var <- names(house_dataset[house_dataset$train_test == "train",])[which(sapply(house_dataset[house_dataset$train_test == "train",], is.numeric))]
+cat_var <- names(house_dataset[house_dataset$train_test == "train",])[which(sapply(house_dataset[house_dataset$train_test == "train",], is.factor))]
+
+train_num <- house_dataset[house_dataset$train_test == "train",][numeric_var]
+
+num_correlations <- cor(train_num[,])
+corrplot(num_correlations, method = "color")
+corrplot(num_correlations, method = "pie")
+
+```
+
+#### Skewness
+
+```{r}
+# Adjusting Skewness in Target Variable
+# Histogram to see the distribution of the house prices
+ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+house_dataset$price <- log1p(house_dataset$price)
+
+# Visualizing Target Variable again
+ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+plot_missing(house_dataset)
+```
+
+#### Outliers
+
+Outliers represent a big problem for numerical variables and can decrease the quality of any model and causes bias in our predeictions. We will look at numerical variables manually using ggplot and remove outliers accordingly.
+
+Train and test data will be splits for outlier removal then we will bind them again for further preprocessing.
+
+```{r Outlier Detection and Removal}
+
+train <- house_dataset[house_dataset$train_test == 'train',]
+test <- house_dataset[house_dataset$train_test == 'test',]
+
+
+par(mfrow=c(2,5))
+for (col in names(train)) {
+  if (is.numeric(train[[col]]) ){
+    boxplot(train[,col], main=names(train[col]), type="l", col = "red")
+  }
+}
+
+if(FALSE){ #-> removes too many rows
+  
+  nrow(train)
+  
+  for (col in names(train)) {
+    if (!is.factor(train[[col]])){
+      print(ggplot(train, aes_string(y=col)) + 
+              geom_boxplot(width = 0.1, outlier.size = 5) + 
+              theme(axis.line.x = element_blank(), axis.title.x = element_blank(), 
+                    axis.ticks.x = element_blank(), axis.text.x = element_blank(),
+                    legend.position="none"))
+      
+      to_remove <- boxplot.stats(train[[col]])$out
+      train <- train[!train[[col]] %in% to_remove, ]
+    }
+  }
+  
+  nrow(train) 
+}
+
+nrow(train)
+
+#Since the too many rows are deleted, we will comment it out and rather remove outliers manually by looking at the visualizations for each variable against the target variable
+
+train <- subset(train, bedrooms < 11)
+train <- subset(train, bathrooms <= 6)
+train <- subset(train, sqft_living < 10000)
+train <- subset(train, sqft_lot < 750000)
+train <- subset(train, sqft_lot15 < 500000)
+train <- subset(train, sqft_above < 8500)
+train <- subset(train, sqft_basement < 3000)
+
+nrow(train)
+# Combining train and test again
+house_dataset <- rbind(train, test)
+
+
+```
+
+#### Scaling
+```{r}
+# Feature scaling
+numericFeatures = sapply(select(house_dataset, -price), is.numeric)
+numericFeatures = c(FALSE, numericFeatures) # No need to scale price
+house_dataset[numericFeatures] = sapply(house_dataset[numericFeatures], scale)
+head(house_dataset)
+```
+
+
+#### Data split
+To facilitate the data cleaning and feature engineering we merged train and test datasets. We now split them again to create our final model.
+
+```{r Data split}
+## Train / Test split
+# Now we split the dataset again for model training
+train_data <- house_dataset[house_dataset$train_test == "train",]
+test_data <- house_dataset[house_dataset$train_test == "test",]
+
+dim(train_data)
+dim(test_data)
+
+```
+
+#### Train / Validation split
+We are going to split the annotated dataset in training and validation for the later evaluation of our regression models
+```{r Data Split Function}
+# Function to split a dataset into training and validation.
+splitdf <- function(dataframe, seed=NULL) {
+  if (!is.null(seed)) set.seed(seed)
+ 	index <- 1:nrow(dataframe)
+ 	trainindex <- sample(index, trunc(length(index)/1.3))
+ 	trainset <- dataframe[trainindex, ]
+ 	testset <- dataframe[-trainindex, ]
+ 	list(trainset=trainset,testset=testset)
+}
+
+# Applying the function to the training_data
+splits <- splitdf(train_data, seed = 123)
+
+# Splitting the data into train set and validation set
+training <- splits$trainset
+validation <- splits$testset
+
+dim(training)
+dim(validation)
+
+```
+
+#### Modeling
+##### Regression Metrics
+First we will define three metric functions to measure the strength and accuracy of our model.
+```{r Metric Functions}
+
+# Mean Absolute Error
+mae<-function(real, predicted){
+  return(mean(abs(real-predicted)))
+}
+
+# Mean Absolute Percentage Error
+mape<-function(real,predicted){
+  return(mean(abs((real-predicted)/real)))
+}
+
+# Root Mean Squared Error
+rmse<-function(real,predicted){
+  return(sqrt(mean((real-predicted)^2)))
+}
+
+```
+
+##### Linear Regression
+We will now start with a baseline linear model to evaluate our prediction and further we will use regularization methods to do feature elimination and optimize our results
+
+```{r Linear Regression}
+
+lm_model = lm(formula = price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age,
+           data = training)
+# Summary of the model
+summary(lm_model)
+
+mean(lm_model$residuals)
+hist(lm_model$residuals, main = 'Residuals Distribution', col = "dodgerblue3")
+# Residuals are distributed around zero!
+
+validation$pred <- predict(lm_model,validation)
+lm_mae <- mae(real = validation$price, predicted = validation$pred)
+lm_mape <- mape(real = validation$price, predicted = validation$pred)
+lm_rmse <- rmse(real = validation$price, predicted = validation$pred)
+
+paste("The mean absolute error for linear regression is ", lm_mae, "and mape is", lm_mape, "and rmse is ", lm_rmse)
+
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+lm_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$pred))
+lm_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$pred))
+lm_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$pred))
+
+paste("The mean absolute error for linear regression is ", lm_mae, "and mape is", lm_mape, "and rmse is ", lm_rmse)
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste('RMSE:', format(round(lm_rmse, 4)), " and Mean Price Error:", format(round(lm_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+paste("R-Squared:", summary(lm_model)$r.squared)
+
+```
+
+
+Now that we have an intial regression model, we can start working to improve our prediction by practicing regularization. Regularization methods add a penalty on the variables and lead the model into having fewer coefficients. These methods are Lasso and Ridge regressions.
+
+Ridge and Lasso Regressions are similar in terms of methodology, the superficial difference between both models is that Ridge squares the variables while Lasso regression uses the absolute value.Though, Lasso is  better than ridge regression at reducing the variance in models that contain a lot of useless variables, so in the context of our dataset, Lasso will be very beneficial in improving predictions.
+
+In summary, using Ridge regression and Lasso regression both helps with variable elimination however Lasso is mainly useful for excluding useless variables from our regression equation which makes the final prediction equation simpler. On the other hand Ridge will be useful when most of our features are good for the prediction.
+
+
+##### Ridge Regression
+```{r Ridge Regression, warning=FALSE}
+lambdas <- 10^seq(-3, 0, by = .05)
+
+set.seed(121)
+train_control_config <- trainControl(method = "repeatedcv", 
+                                     number = 5, 
+                                     repeats = 1,
+                                     returnResamp = "all")
+
+ridge_model <- train(price ~ ., data = training, 
+               method = "glmnet", 
+               metric = "RMSE",
+               trControl=train_control_config,
+               tuneGrid = expand.grid(alpha = 0, lambda = lambdas))
+```
+
+The parameter `alpha = 0` means that we want to use the Ridge Regression way of expressing the penalty in regularization. If you replace that by `alpha = 1` then we get Lasso.
+
+###### Ridge Evaluation
+Plotting the RMSE for the different lambda values, we can see the impact of this parameter in the model performance.
+Small values seem to work better for this dataset.
+
+Plotting the coefficients for different lambda values. As expected the larger the lambda (lower Norm) value the smaller the coefficients of the features. However, as we can see at the top of the features, there is no feature selection; i.e., the model always consider the 225 parameters.
+
+```{r Ridge Evaluation}
+summary(ridge_model)
+plot(ridge_model)
+plot(ridge_model$finalModel)
+
+validation$ridge_pred <- predict(ridge_model,validation)
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+ridge_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$ridge_pred))
+ridge_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$ridge_pred))
+ridge_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$ridge_pred))
+
+paste("The mean absolute error for linear regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
+
+# Print, plot variable importance
+plot(varImp(ridge_model), top = 20) # 20 most important features
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(ridge_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Ridge Regression -->",'RMSE:', format(round(ridge_rmse, 4)), " and Mean Price Error:", format(round(ridge_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+# Sum of Squares Total and Error
+sst_ridge <- sum((validation$price - mean(validation$price))^2)
+sse_ridge <- sum((validation$ridge_pred - validation$price)^2)
+
+# R-squared
+r2_ridge <- 1- sse_ridge/sst_ridge
+paste("Ridge R-Squared:", r2_ridge)
+
+```
+
+##### Lasso Regression
+The only thing that changes between Lasso and Ridge is the `alpha` parameter. The remaining part of the exercise is equivalent.
+The parameter `alpha = 0` means that we want to use the Ridge Regression way of expressing the penalty in regularization. If you replace that by `alpha = 1` then you get Lasso which means that Lasso applies a bigger penality which minimizes the prediction equation.
+```{r Lasso Regression, warning=FALSE}
+lambdas <- 10^seq(-3, 0, by = .05)
+
+set.seed(121)
+train_control_config <- trainControl(method = "repeatedcv", 
+                                     number = 5, 
+                                     repeats = 1,
+                                     returnResamp = "all")
+
+lasso_model <- train(price ~ ., data = training, 
+               method = "glmnet", 
+               metric = "RMSE",
+               trControl=train_control_config,
+               tuneGrid = expand.grid(alpha = 1, lambda = lambdas))
+```
+
+###### Lasso Evaluation
+```{r Lasso Evaluation}
+summary(lasso_model)
+plot(lasso_model)
+plot(lasso_model$finalModel)
+
+validation$lasso_pred <- predict(lasso_model,validation)
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+lasso_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$lasso_pred))
+lasso_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$lasso_pred))
+lasso_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$lasso_pred))
+
+paste("The mean absolute error for linear regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
+
+# Print, plot variable importance
+plot(varImp(lasso_model), top = 20) # 20 most important features
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(lasso_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(lasso_rmse, 4)), " and Mean Price Error:", format(round(lasso_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+# Sum of Squares Total and Error
+sst_lasso <- sum((validation$price - mean(validation$price))^2)
+sse_lasso <- sum((validation$lasso_pred - validation$price)^2)
+
+# R-squared
+r2_lasso <- 1- sse_lasso/sst_lasso
+paste("Ridge R-Squared:", r2_lasso)
+```
+
+##### Defining Formula
+Defining Formula to be used for the following models
+```{r}
+# we start defining a formula
+formula<-as.formula(price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade
+             + sqft_basement + sqft_living15 + sqft_lot15 + NewHouse + Age)
+
+formula2 <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age)
+
+```
+
+
+##### 2.1 Regression with StepWise feature selection 
+```{r}
+library(MASS)
+
+lm_0<-stepAIC(lm(formula = formula2, 
+                 data=training),
+              trace=F)
+summary(lm_0)
+validation$pred_lm0 <- predict(lm_0, validation)
+
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+lm0_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
+lm0_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
+lm0_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
+
+paste("The mean absolute error for linear regression is ", lm0_mae, "and mape is", lm0_mape, "and rmse is ", lm0_rmse)
+
+ggplot(melt(df_pred, id.vars = 'id'), aes(x=id,y=value, colour=variable))+
+  geom_point(alpha=0.65)+geom_line(alpha=0.65)+
+  ylim(0,50000)+xlab('')+ylab('$')+
+  ggtitle('Linear Regression - Test Prediction on Automobile Price')+
+  scale_colour_manual(values = c('black','red','blue','forestgreen','orange'))
+
+```
+
+
+##### XGBoost
+
+```{r}
+training[,-which(names(training)== "price")]
+
+matrix <- as.matrix(training[,-which(names(training)== "price")])
+
+xgb_reg_0<-xgboost(booster='gblinear',
+                   data=matrix,
+                   label=training$price,
+                   nrounds = 100,
+                   objective='reg:linear')
+
+```
+
+##### Random Forest
+```{r Random Forest Base Model}
+rf_0<-randomForest(formula=formula, data=training)
+print(rf_0)
+```
+###### Random Forest Evaluation
+```{r RF Evaluation}
+summary(rf_0)
+plot(rf_0)
+
+validation$rf0_pred <- predict(rf_0,validation)
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+rf0_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
+rf0_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
+rf0_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
+
+paste("The mean absolute error for linear regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Random Forest -->",'RMSE:', format(round(rf0_rmse, 4)), " and Mean Price Error:", format(round(rf0_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))# Sum of Squares Total and Error
+
+sst_rf <- sum((validation$price - mean(validation$price))^2)
+sse_rf <- sum((validation$rf0_pred - validation$price)^2)
+
+# R-squared
+r2_rf <- 1- sse_rf/sst_rf
+paste("Ridge R-Squared:", r2_rf)
+
+```
+###### Random Forest Tuning
+```{r Random Forest Tuning}
+tuneGrid=data.table(expand.grid(mtry=c(5,15),
+                                splitrule='variance',
+                                min.node.size=c(2,5,10)))
+dim(tuneGrid)
+tuneGrid
+
+train_control_config <- trainControl(method = "repeatedcv", 
+                                     number = 5, 
+                                     repeats = 1,
+                                     returnResamp = "all")
+# 3. Train the model
+set.seed(123)
+rf_tune <- train(
+  formula,
+  data = training,
+  method = "ranger", num.trees=500,
+  preProc = NULL, 
+  tuneGrid = tuneGrid,
+  trControl = train_control_config,
+  metric = "MAE"
+)
+
+rf_tune
+
+# inspecting the most relevant features: 
+rf_tune$results
+rf_tune$bestTune
+rf_tune$finalModel
+
+# and visualize a CV summary using the established metric
+plot(rf_tune)
+
+
+rf_tuned<-ranger(formula, data=training,num.trees=500,
+                   mtry=rf_tune$bestTune$mtry,
+                   min.node.size=rf_tune$bestTune$min.node.size)
+```
+
+
+###### Optimized Random Forest Evaluation
+```{r RF Evaluation}
+
+validation$rft_pred <- predict(rf_tuned,validation)
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+rft_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+rft_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+rft_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+
+paste("The mean absolute error for linear regression is ", rft_mae, "and mape is", rft_mape, "and rmse is ", rft_rmse)
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(rft_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Optimized Random Forest -->",'RMSE:', format(round(rft_rmse, 4)), " and Mean Price Error:", format(round(rft_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+```
