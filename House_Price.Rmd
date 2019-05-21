@@ -1,6 +1,15 @@
 ---
 title: "House Price Prediction"
-output: html_document
+author: "Andrew Rizk"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    fig_width: 10
+    code_folding: hide
+    fig_height: 4.5
+    theme: cosmo
+    highlight: tango
 ---
 
 ```{r setup, include=FALSE}
@@ -593,7 +602,7 @@ house_dataset <- rbind(train, test)
 #### Scaling
 ```{r}
 # Feature scaling
-numericFeatures = sapply(select(house_dataset, -price), is.numeric)
+numericFeatures = sapply(house_dataset[,-1], is.numeric)
 numericFeatures = c(FALSE, numericFeatures) # No need to scale price
 house_dataset[numericFeatures] = sapply(house_dataset[numericFeatures], scale)
 head(house_dataset)
@@ -819,57 +828,124 @@ paste("Ridge R-Squared:", r2_lasso)
 Defining Formula to be used for the following models
 ```{r}
 # we start defining a formula
-formula<-as.formula(price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade
+formula1 <-as.formula(price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade
              + sqft_basement + sqft_living15 + sqft_lot15 + NewHouse + Age)
 
 formula2 <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age)
 
 ```
 
-
-##### 2.1 Regression with StepWise feature selection 
+##### XGBoost
 ```{r}
-library(MASS)
 
-lm_0<-stepAIC(lm(formula = formula2, 
-                 data=training),
-              trace=F)
-summary(lm_0)
-validation$pred_lm0 <- predict(lm_0, validation)
+my_control <- trainControl(method = "cv", 
+                                     number = 5)
 
-# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
-lm0_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
-lm0_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
-lm0_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$pred_lm0))
+xgbGrid <- expand.grid(nrounds = 1000,
+                       max_depth = 15,
+                       eta = .05,
+                       gamma = 0,
+                       colsample_bytree = .5,
+                       min_child_weight = 1,
+                       subsample = 1)
 
-paste("The mean absolute error for linear regression is ", lm0_mae, "and mape is", lm0_mape, "and rmse is ", lm0_rmse)
+xgb = train(formula2, data = training,
+                   method = "xgbTree",trControl = my_control,
+                   tuneGrid = xgbGrid,na.action = na.pass,metric="RMSE")
 
-ggplot(melt(df_pred, id.vars = 'id'), aes(x=id,y=value, colour=variable))+
-  geom_point(alpha=0.65)+geom_line(alpha=0.65)+
-  ylim(0,50000)+xlab('')+ylab('$')+
-  ggtitle('Linear Regression - Test Prediction on Automobile Price')+
-  scale_colour_manual(values = c('black','red','blue','forestgreen','orange'))
 
 ```
 
+###### XGBoost Evaluation
+```{r}
+summary(xgb)
 
-##### XGBoost
+validation$xgb_pred <- predict(xgb,validation)
+# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+xgb_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$xgb_pred))
+xgb_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$xgb_pred))
+xgb_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$xgb_pred))
+
+paste("The mean absolute error for xgboost is ", xgb_mae, "and mape is", xgb_mape, "and rmse is ", xgb_rmse)
+
+plot(varImp(xgb), top = 20)
+
+# Plotting predictions vs real
+ggplot(validation,aes(x=expm1(price),y=expm1(xgb_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(xgb_rmse, 4)), " and Mean Price Error:", format(round(xgb_mae,4)))) +
+  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+# Sum of Squares Total and Error
+sst_xgb <- sum((validation$price - mean(validation$price))^2)
+sse_xgb <- sum((validation$xgb_pred - validation$price)^2)
+
+# R-squared
+r2_xgb <- 1- sse_xgb/sst_xgb
+paste("Ridge R-Squared:", r2_xgb)
+```
 
 ```{r}
-training[,-which(names(training)== "price")]
+param <- list(objective = "reg:linear", 
+                booster = "gbtree",
+                eta = 0.01, 0.05,
+                max_depth = 15, 10, 8,
+                subsample = 0.5, 0.7,
+                colsample_bytree = 0.7,
+                num_parallel_tree = 5
+                # alpha = 0.0001, 
+                # lambda = 1
+)
 
-matrix <- as.matrix(training[,-which(names(training)== "price")])
 
-xgb_reg_0<-xgboost(booster='gblinear',
-                   data=matrix,
-                   label=training$price,
-                   nrounds = 100,
-                   objective='reg:linear')
+clf <- xgb.train(params = param, 
+                    data = training, 
+                    nrounds = 1000,
+                    verbose = 0,
+                    early.stop.round  = 100,
+                    watchlist = watchlist,
+                    maximize  = FALSE,
+                    feval=RMPSE
+)
+
+tuneGrid=data.table(expand.grid(mtry=c(5,15),
+                                splitrule='variance',
+                                min.node.size=c(2,5,10),
+                                subsample = c(0.5, 0.75, 1), 
+                                colsample_bytree = c(0.5, 0.8),
+                                max_depth = c(8,10,15)))
+
+xgb = train(formula2, data = training,
+                   method = "xgbTree",trControl = my_control,
+                   tuneGrid = tuneGrid, na.action = na.pass,metric="RMSE")
+
+
+rf_tune <- train(
+  formula,
+  data = training,
+  method = "ranger", num.trees=500,
+  preProc = NULL, 
+  tuneGrid = tuneGrid,
+  trControl = train_control_config,
+  metric = "MAE"
+)
+
+DMMatrixTrain <- xgb.DMatrix(data = training, label = training$price)
+
+xgbGrid <- expand.grid(nrounds = 500,
+                       max_depth = 4,
+                        eta = .1,
+                       gamma = 0,
+                       colsample_bytree = .5,
+                       min_child_weight = 1,
+                       subsample = 1)
+
 
 ```
 
 ##### Random Forest
 ```{r Random Forest Base Model}
+# Since RF does not accept factors more than 53 levels we will remove factors with more than 53 levels
 rf_0<-randomForest(formula=formula, data=training)
 print(rf_0)
 ```
