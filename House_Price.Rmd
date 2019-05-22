@@ -2,18 +2,20 @@
 title: "House Price Prediction"
 author: "Andrew Rizk"
 output:
+  pdf_document:
+    toc: yes
   html_document:
-    number_sections: true
-    toc: true
-    fig_width: 10
     code_folding: hide
     fig_height: 4.5
-    theme: cosmo
+    fig_width: 10
     highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, include=FALSE, echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
 #### Load Libraries
@@ -44,6 +46,11 @@ library(ranger)
 
 #### Load Datasets
 ```{r Datasets}
+# We will load the original datasets and keep them untouched if needed for later purposes
+original_train <- read.csv("house_price_train.csv", header = T)
+original_test <- read.csv("house_price_test.csv", header = T)
+
+# Loading datasets
 house_train <- read.csv("house_price_train.csv", header = T)
 house_test <- read.csv("house_price_test.csv", header = T)
 
@@ -120,7 +127,7 @@ ggplot(house_train,aes(x= log10(price)))+geom_histogram(fill="dodgerblue3") + sc
 
 ```
 
-We will now create a new column to categorize the prices into 4 categories (Cheap, Medium, Expensive, Very Expensive) and visualize the results using leaflet
+We will now create a new column to categorize the prices into 4 categories (Cheap, Medium, Expensive, Very Expensive) and visualize the results using leaflet. Though since the code below really slows down my Rmarkdown, I decided to comment it out.
 
 ```{r}
 # house_train_temp <- house_train
@@ -184,7 +191,6 @@ for (i in seq_along(numeric_var)) {
 ```
 
 Now that we have a general idea about how the price varies with each variable, we will take each variable and analyze it separately with the price.
-
 
 ```{r Bedrooms}
 table(house_dataset$bedrooms)
@@ -487,26 +493,6 @@ house_dataset$NewHouse <- as.factor(house_dataset$NewHouse)
 #If the year of rennovation is present, then the age will be the year sold minus the year of rennovation
 house_dataset <- house_dataset %>% mutate(Age = ifelse(yr_renovated != 0, YearSold - yr_renovated, YearSold - yr_built))
 
-#### Factorize the remaining features
-house_dataset$yr_built <- as.factor(house_dataset$yr_built)
-house_dataset$yr_renovated <- as.factor(house_dataset$yr_renovated)
-house_dataset$YearSold <- as.factor(house_dataset$YearSold)
-house_dataset$train_test <- as.factor(house_dataset$train_test)
-house_dataset$price_bin <- as.factor(house_dataset$price_bin)
-house_dataset$view <- as.factor(house_dataset$view)
-
-# Check the structure of the dataset
-str(house_dataset)
-
-#Removing Features
-house_dataset <- house_dataset[,-which(names(house_dataset) == "date")]
-house_dataset <- house_dataset[,-which(names(house_dataset) == "lat")]
-house_dataset <- house_dataset[,-which(names(house_dataset) == "long")]
-# house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_built")]
-house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_renovated")]
-house_dataset <- house_dataset[,-which(names(house_dataset) == "YearSold")]
-
-
 ```
 
 #### Correlations
@@ -527,25 +513,13 @@ corrplot(num_correlations, method = "pie")
 
 ```
 
-#### Skewness
-
-```{r}
-# Adjusting Skewness in Target Variable
-# Histogram to see the distribution of the house prices
-ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
-
-house_dataset$price <- log1p(house_dataset$price)
-
-# Visualizing Target Variable again
-ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
-plot_missing(house_dataset)
-```
-
 #### Outliers
 
 Outliers represent a big problem for numerical variables and can decrease the quality of any model and causes bias in our predeictions. We will look at numerical variables manually using ggplot and remove outliers accordingly.
 
 Train and test data will be splits for outlier removal then we will bind them again for further preprocessing.
+It is also important to note than not all columns with numeric values are classified as numeric variables. Some variables represent quality for example.
+
 
 ```{r Outlier Detection and Removal}
 
@@ -592,22 +566,96 @@ train <- subset(train, sqft_lot15 < 500000)
 train <- subset(train, sqft_above < 8500)
 train <- subset(train, sqft_basement < 3000)
 
+# We can also see that our house prices lie in a lower range of prices. Some of the houses have a really high price than most in the dataset so we will remove those so that they dont affect our model
+# train <- subset(train, price < 4000000)
+
 nrow(train)
 # Combining train and test again
 house_dataset <- rbind(train, test)
 
 
 ```
+#### Skewness
+```{r}
+# Adjusting Skewness in Target Variable
+# Histogram to see the distribution of the house prices
+ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+
+house_dataset$price <- log1p(house_dataset$price)
+
+# Visualizing Target Variable again
+ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
+plot_missing(house_dataset)
+```
+
+#### Factorizing Features
+There are some numerical features that should be perseved as categorical ones, in order to gasp correctly the information inside those columns.
+If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they cant be used in any calculation.
+```{r}
+#### Factorize the remaining features
+house_dataset$yr_built <- as.factor(house_dataset$yr_built)
+house_dataset$yr_renovated <- as.factor(house_dataset$yr_renovated)
+house_dataset$YearSold <- as.factor(house_dataset$YearSold)
+house_dataset$train_test <- as.factor(house_dataset$train_test)
+house_dataset$price_bin <- as.factor(house_dataset$price_bin)
+house_dataset$view <- as.factor(house_dataset$view)
+house_dataset$bedrooms <- as.factor(house_dataset$bedrooms)
+house_dataset$bathrooms <- as.factor(house_dataset$bathrooms)
+house_dataset$floors <- as.factor(house_dataset$floors)
+#house_dataset$lat <- as.factor(house_dataset$lat)
+#house_dataset$long <- as.factor(house_dataset$long)
+
+#Removing Features
+house_dataset <- house_dataset[,-which(names(house_dataset) == "date")]
+#house_dataset <- house_dataset[,-which(names(house_dataset) == "lat")]
+# house_dataset <- house_dataset[,-which(names(house_dataset) == "long")]
+# house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_built")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "yr_renovated")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "YearSold")]
+house_dataset <- house_dataset[,-which(names(house_dataset) == "price_bin")]
+
+```
 
 #### Scaling
+We will now standardize all the numeric features since the range of the data values varies widely. We will scale the variables so that their scale varies around zero. This is done so that the variance of the features are in the same range. If a feature's variance in orders of magnitude more than the variance of other features, that particular feature might dominate other features in the dataset, which is not something we want happening in our model.
 ```{r}
 # Feature scaling
 numericFeatures = sapply(house_dataset[,-1], is.numeric)
 numericFeatures = c(FALSE, numericFeatures) # No need to scale price
 house_dataset[numericFeatures] = sapply(house_dataset[numericFeatures], scale)
-head(house_dataset)
 ```
 
+#### More Feature Engineering
+```{r}
+max(house_dataset$long) #-> 6.395034
+min(house_dataset$long) #->-2.168754
+
+
+house_dataset <- house_dataset %>% mutate(long_bin = ifelse(long >= -2.168754 & long < -1, 'long_1',
+                                                            ifelse(long >= -1 & long < 0, 'long_2',
+                                                                   ifelse(long >= 0 & long < 1, 'long_3',
+                                                                          ifelse(long >= 1 & long < 2, 'long_4',
+                                                                                 ifelse(long>=2&long<3, 'long_5',
+                                                                                        ifelse(long>=3 & long<4,'long_6',
+                                                                                               ifelse(long>=4&long<5, 'long_7',
+                                                                                                      ifelse(long>=5,'long_8',NA)))))))))
+
+max(house_dataset$lat) #-> 1.569772
+min(house_dataset$lat) #-> -2.916866
+
+
+house_dataset <- house_dataset %>% mutate(lat_bin = ifelse(lat >= -2.916866 & lat < -2.3, 'lat_1',
+                                                            ifelse(lat >= -2.3 & lat < -1.6, 'lat_2',
+                                                                   ifelse(lat >= -1.6 & lat < -1, 'lat_3',
+                                                                          ifelse(lat >= -1 & lat < -0.4, 'lat_4',
+                                                                                 ifelse(lat>= -0.4&lat<0.1, 'lat_5',
+                                                                                        ifelse(lat>= 0.1 & lat<0.6,'lat_6',
+                                                                                               ifelse(lat>=0.6&lat<1.1, 'lat_7',
+                                                                                                      ifelse(lat>=1.1,'lat_8',NA)))))))))
+
+house_dataset$long_bin <- as.factor(house_dataset$long_bin)
+house_dataset$lat_bin <- as.factor(house_dataset$lat_bin)
+```
 
 #### Data split
 To facilitate the data cleaning and feature engineering we merged train and test datasets. We now split them again to create our final model.
@@ -621,6 +669,9 @@ test_data <- house_dataset[house_dataset$train_test == "test",]
 dim(train_data)
 dim(test_data)
 
+train_data <- train_data[,-which(names(train_data) == "train_test")]
+test_data <- test_data[,-which(names(test_data) == "train_test")]
+
 ```
 
 #### Train / Validation split
@@ -630,14 +681,14 @@ We are going to split the annotated dataset in training and validation for the l
 splitdf <- function(dataframe, seed=NULL) {
   if (!is.null(seed)) set.seed(seed)
  	index <- 1:nrow(dataframe)
- 	trainindex <- sample(index, trunc(length(index)/1.3))
+ 	trainindex <- sample(index, trunc(length(index)/1.2))
  	trainset <- dataframe[trainindex, ]
  	testset <- dataframe[-trainindex, ]
  	list(trainset=trainset,testset=testset)
 }
 
 # Applying the function to the training_data
-splits <- splitdf(train_data, seed = 123)
+splits <- splitdf(train_data, seed = 11)
 
 # Splitting the data into train set and validation set
 training <- splits$trainset
@@ -675,7 +726,12 @@ We will now start with a baseline linear model to evaluate our prediction and fu
 
 ```{r Linear Regression}
 
-lm_model = lm(formula = price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age,
+training$bathrooms <- as.factor(training$bathrooms)
+validation$bathrooms <- as.factor(validation$bathrooms)
+training$bedrooms <- as.factor(training$bedrooms)
+validation$bedrooms <- as.factor(validation$bedrooms)
+
+lm_model = lm(formula = price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat,
            data = training)
 # Summary of the model
 summary(lm_model)
@@ -700,14 +756,15 @@ paste("The mean absolute error for linear regression is ", lm_mae, "and mape is"
 
 # Plotting predictions vs real
 ggplot(validation,aes(x=expm1(price),y=expm1(pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste('RMSE:', format(round(lm_rmse, 4)), " and Mean Price Error:", format(round(lm_mae,4)))) +
+  ggtitle(paste('RMSE:', format(round(lm_rmse, 4)), " and MAPE -->", format(round(lm_mape, 4)))) + labs(subtitle = paste(" and Mean Price Error:", format(round(lm_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+
+help("geom_smooth")
 
 paste("R-Squared:", summary(lm_model)$r.squared)
 
 ```
-
 
 Now that we have an intial regression model, we can start working to improve our prediction by practicing regularization. Regularization methods add a penalty on the variables and lead the model into having fewer coefficients. These methods are Lasso and Ridge regressions.
 
@@ -717,11 +774,12 @@ In summary, using Ridge regression and Lasso regression both helps with variable
 
 
 ##### Ridge Regression
+The alpha parameter represents the penalty in the regularization process. For Ridge regression, alpha value of 0 is used while in Lasso we use an alpha value of 1.
 ```{r Ridge Regression, warning=FALSE}
-lambdas <- 10^seq(-3, 0, by = .05)
+lambdas <- 10^seq(-4, 0, by = .05)
 
 set.seed(121)
-train_control_config <- trainControl(method = "repeatedcv", 
+my_control <- trainControl(method = "repeatedcv", 
                                      number = 5, 
                                      repeats = 1,
                                      returnResamp = "all")
@@ -729,17 +787,15 @@ train_control_config <- trainControl(method = "repeatedcv",
 ridge_model <- train(price ~ ., data = training, 
                method = "glmnet", 
                metric = "RMSE",
-               trControl=train_control_config,
+               trControl=my_control,
                tuneGrid = expand.grid(alpha = 0, lambda = lambdas))
 ```
 
-The parameter `alpha = 0` means that we want to use the Ridge Regression way of expressing the penalty in regularization. If you replace that by `alpha = 1` then we get Lasso.
 
 ###### Ridge Evaluation
 Plotting the RMSE for the different lambda values, we can see the impact of this parameter in the model performance.
 Small values seem to work better for this dataset.
-
-Plotting the coefficients for different lambda values. As expected the larger the lambda (lower Norm) value the smaller the coefficients of the features. However, as we can see at the top of the features, there is no feature selection; i.e., the model always consider the 225 parameters.
+Plotting the coefficients for different lambda values. As expected the larger the lambda (lower Norm) value the smaller the coefficients of the features. However, as we can see at the top of the features, there is no feature selection.
 
 ```{r Ridge Evaluation}
 summary(ridge_model)
@@ -752,14 +808,13 @@ ridge_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$ri
 ridge_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$ridge_pred))
 ridge_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$ridge_pred))
 
-paste("The mean absolute error for linear regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
+paste("The mean absolute error for Ridge regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
 
 # Print, plot variable importance
 plot(varImp(ridge_model), top = 20) # 20 most important features
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(ridge_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste("Ridge Regression -->",'RMSE:', format(round(ridge_rmse, 4)), " and Mean Price Error:", format(round(ridge_mae,4)))) +
+ggplot(validation,aes(x=expm1(price),y=expm1(ridge_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") + ggtitle(paste("Ridge Regression -->",'RMSE:', format(round(ridge_rmse, 4)), " and MAPE -->", format(round(ridge_mape, 4)))) + labs(subtitle = paste(" and Mean Price Error:", format(round(ridge_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
@@ -774,13 +829,10 @@ paste("Ridge R-Squared:", r2_ridge)
 ```
 
 ##### Lasso Regression
-The only thing that changes between Lasso and Ridge is the `alpha` parameter. The remaining part of the exercise is equivalent.
-The parameter `alpha = 0` means that we want to use the Ridge Regression way of expressing the penalty in regularization. If you replace that by `alpha = 1` then you get Lasso which means that Lasso applies a bigger penality which minimizes the prediction equation.
+The only thing that changes between Lasso and Ridge is the alpha parameter. We will use the same sequence of lambda values used in ridge and apply lasso by changing alpha into 1. a value of 1 for alpha means that Lasso applies a higher penalty in the regularization more than in Ridge.
 ```{r Lasso Regression, warning=FALSE}
-lambdas <- 10^seq(-3, 0, by = .05)
-
 set.seed(121)
-train_control_config <- trainControl(method = "repeatedcv", 
+my_control <- trainControl(method = "repeatedcv", 
                                      number = 5, 
                                      repeats = 1,
                                      returnResamp = "all")
@@ -788,7 +840,7 @@ train_control_config <- trainControl(method = "repeatedcv",
 lasso_model <- train(price ~ ., data = training, 
                method = "glmnet", 
                metric = "RMSE",
-               trControl=train_control_config,
+               trControl=my_control,
                tuneGrid = expand.grid(alpha = 1, lambda = lambdas))
 ```
 
@@ -804,14 +856,15 @@ lasso_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$la
 lasso_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$lasso_pred))
 lasso_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$lasso_pred))
 
-paste("The mean absolute error for linear regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
+paste("The mean absolute error for Lasso regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
 
 # Print, plot variable importance
 plot(varImp(lasso_model), top = 20) # 20 most important features
 
 # Plotting predictions vs real
 ggplot(validation,aes(x=expm1(price),y=expm1(lasso_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(lasso_rmse, 4)), " and Mean Price Error:", format(round(lasso_mae,4)))) +
+  ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(lasso_rmse, 4)), " and MAPE -->", format(round(lasso_mape, 4)))) +
+  labs(subtitle = paste(" and Mean Price Error:", format(round(lasso_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
@@ -821,7 +874,7 @@ sse_lasso <- sum((validation$lasso_pred - validation$price)^2)
 
 # R-squared
 r2_lasso <- 1- sse_lasso/sst_lasso
-paste("Ridge R-Squared:", r2_lasso)
+paste("Lasso R-Squared:", r2_lasso)
 ```
 
 ##### Defining Formula
@@ -829,23 +882,29 @@ Defining Formula to be used for the following models
 ```{r}
 # we start defining a formula
 formula1 <-as.formula(price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade
-             + sqft_basement + sqft_living15 + sqft_lot15 + NewHouse + Age)
+             + sqft_basement + sqft_living15 + sqft_lot15 + NewHouse + Age + long + lat)
 
-formula2 <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age)
+formula2 <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat)
 
 ```
 
 ##### XGBoost
 ```{r}
 
-my_control <- trainControl(method = "cv", 
-                                     number = 5)
+my_control <- trainControl(method = "cv", number = 3)
+
+# xgbGrid <- expand.grid(nrounds = 1000,
+#                        max_depth = c(12,15),
+#                        eta = c(0.05, 0.1),
+#                        gamma = c(0, 0.2, 1),
+#                        colsample_bytree = 0.7,
+#                        min_child_weight = 3, subsample = c(0.5, 1))
 
 xgbGrid <- expand.grid(nrounds = 1000,
                        max_depth = 15,
-                       eta = .05,
-                       gamma = 0,
-                       colsample_bytree = .5,
+                       eta = .1,
+                       gamma = 0.2,
+                       colsample_bytree = 0.7,
                        min_child_weight = 1,
                        subsample = 1)
 
@@ -872,7 +931,8 @@ plot(varImp(xgb), top = 20)
 
 # Plotting predictions vs real
 ggplot(validation,aes(x=expm1(price),y=expm1(xgb_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(xgb_rmse, 4)), " and Mean Price Error:", format(round(xgb_mae,4)))) +
+  ggtitle(paste("XGBoost Regression -->",'RMSE:', format(round(xgb_rmse, 4)), " and MAPE -->", format(round(xgb_mape, 4)))) +
+  labs(subtitle = paste(" and Mean Price Error:", format(round(xgb_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
@@ -882,118 +942,86 @@ sse_xgb <- sum((validation$xgb_pred - validation$price)^2)
 
 # R-squared
 r2_xgb <- 1- sse_xgb/sst_xgb
-paste("Ridge R-Squared:", r2_xgb)
-```
-
-```{r}
-param <- list(objective = "reg:linear", 
-                booster = "gbtree",
-                eta = 0.01, 0.05,
-                max_depth = 15, 10, 8,
-                subsample = 0.5, 0.7,
-                colsample_bytree = 0.7,
-                num_parallel_tree = 5
-                # alpha = 0.0001, 
-                # lambda = 1
-)
-
-
-clf <- xgb.train(params = param, 
-                    data = training, 
-                    nrounds = 1000,
-                    verbose = 0,
-                    early.stop.round  = 100,
-                    watchlist = watchlist,
-                    maximize  = FALSE,
-                    feval=RMPSE
-)
-
-tuneGrid=data.table(expand.grid(mtry=c(5,15),
-                                splitrule='variance',
-                                min.node.size=c(2,5,10),
-                                subsample = c(0.5, 0.75, 1), 
-                                colsample_bytree = c(0.5, 0.8),
-                                max_depth = c(8,10,15)))
-
-xgb = train(formula2, data = training,
-                   method = "xgbTree",trControl = my_control,
-                   tuneGrid = tuneGrid, na.action = na.pass,metric="RMSE")
-
-
-rf_tune <- train(
-  formula,
-  data = training,
-  method = "ranger", num.trees=500,
-  preProc = NULL, 
-  tuneGrid = tuneGrid,
-  trControl = train_control_config,
-  metric = "MAE"
-)
-
-DMMatrixTrain <- xgb.DMatrix(data = training, label = training$price)
-
-xgbGrid <- expand.grid(nrounds = 500,
-                       max_depth = 4,
-                        eta = .1,
-                       gamma = 0,
-                       colsample_bytree = .5,
-                       min_child_weight = 1,
-                       subsample = 1)
-
-
+paste("XGB R-Squared:", r2_xgb)
 ```
 
 ##### Random Forest
 ```{r Random Forest Base Model}
 # Since RF does not accept factors more than 53 levels we will remove factors with more than 53 levels
-rf_0<-randomForest(formula=formula, data=training)
+# Therefore, we will use a separate dataset where we convert zipcode into a numeric variable and then test our model
+
+rftraining <- training
+rfvalidation <- validation
+
+rftraining$zipcode <- as.numeric(rftraining$zipcode)
+rftraining$yr_built <- as.numeric(rftraining$yr_built)
+rfvalidation$zipcode <- as.numeric(rfvalidation$zipcode)
+rfvalidation$yr_built <- as.numeric(rfvalidation$yr_built)
+
+str(rftraining)
+
+rffomula <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat + zipcode)
+
+rf_0<-randomForest(formula=rffomula, data=rftraining, keep.forest = TRUE, keep.inbag = TRUE)
 print(rf_0)
+
+model_imp <- as.data.frame(rf_0$importance, stringsAsFactors = FALSE)
+model_imp$IncNodePurity <- round(model_imp$IncNodePurity, 2)
+model_imp
+
 ```
 ###### Random Forest Evaluation
 ```{r RF Evaluation}
 summary(rf_0)
 plot(rf_0)
 
-validation$rf0_pred <- predict(rf_0,validation)
+rfvalidation$rf0_pred <- predict(rf_0,rfvalidation)
+
 # Since the price was log transformed we will recompute the error metrics by reversing the log transformation
-rf0_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
-rf0_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
-rf0_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$rf0_pred))
+rf0_mae <- mae(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$rf0_pred))
+rf0_mape <- mape(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$rf0_pred))
+rf0_rmse <- rmse(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$rf0_pred))
 
 paste("The mean absolute error for linear regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste("Random Forest -->",'RMSE:', format(round(rf0_rmse, 4)), " and Mean Price Error:", format(round(rf0_mae,4)))) +
+ggplot(rfvalidation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+  ggtitle(paste("Random Forest -->",'RMSE:', format(round(rf0_rmse, 4)), " and MAPE -->", format(round(rf0_mape, 4)))) +
+  labs(subtitle = paste(" and Mean Price Error:", format(round(rf0_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))# Sum of Squares Total and Error
 
-sst_rf <- sum((validation$price - mean(validation$price))^2)
-sse_rf <- sum((validation$rf0_pred - validation$price)^2)
+sst_rf <- sum((rfvalidation$price - mean(rfvalidation$price))^2)
+sse_rf <- sum((rfvalidation$rf0_pred - rfvalidation$price)^2)
 
 # R-squared
 r2_rf <- 1- sse_rf/sst_rf
-paste("Ridge R-Squared:", r2_rf)
+paste("Random Forest R-Squared:", r2_rf)
 
 ```
+
 ###### Random Forest Tuning
-```{r Random Forest Tuning}
-tuneGrid=data.table(expand.grid(mtry=c(5,15),
+```{r Random Forest Tuning, eval=FALSE}
+# tuneGrid=data.table(expand.grid(mtry=c(5,15),
+#                                 splitrule='variance',
+#                                 min.node.size=c(2,5,10)))
+
+tuneGrid=data.table(expand.grid(mtry=c(15),
                                 splitrule='variance',
                                 min.node.size=c(2,5,10)))
-dim(tuneGrid)
-tuneGrid
 
+dim(tuneGrid)
 train_control_config <- trainControl(method = "repeatedcv", 
                                      number = 5, 
                                      repeats = 1,
                                      returnResamp = "all")
 # 3. Train the model
 set.seed(123)
+
 rf_tune <- train(
   formula,
-  data = training,
-  method = "ranger", num.trees=500,
+  data = rftraining,
+  method = "ranger", num.trees=700,
   preProc = NULL, 
   tuneGrid = tuneGrid,
   trControl = train_control_config,
@@ -1011,16 +1039,23 @@ rf_tune$finalModel
 plot(rf_tune)
 
 
-rf_tuned<-ranger(formula, data=training,num.trees=500,
+rf_tuned<-ranger(formula, data=rftraining, num.trees=500,
                    mtry=rf_tune$bestTune$mtry,
                    min.node.size=rf_tune$bestTune$min.node.size)
-```
 
+```
+After hyper-parameter optimization the coefficient of determination has only improved from 0.69 to 0.71.
 
 ###### Optimized Random Forest Evaluation
-```{r RF Evaluation}
+```{r Optimized RF Evaluation, eval=FALSE}
 
-validation$rft_pred <- predict(rf_tuned,validation)
+
+rft_pred <- predict(rf_tuned, validation)
+
+mape(real=validation$price, predicted = as.numeric(rft_pred))
+qplot(test_rf, test_rf1)
+
+
 # Since the price was log transformed we will recompute the error metrics by reversing the log transformation
 rft_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
 rft_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
@@ -1034,4 +1069,42 @@ ggplot(validation,aes(x=expm1(price),y=expm1(rft_pred)))+geom_point()+geom_smoot
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
+```
+
+##### Model Comparison
+Now we will compare all the implemented models based on all MAE, MAPE, RMSE, and R-squared values. The best model will be used to predict the test set.
+
+```{r}
+
+paste("The mean absolute error for linear regression is ", lm_mae, "and mape is", lm_mape, "and rmse is ", lm_rmse)
+paste("Linear Regression R-Squared:", summary(lm_model)$r.squared)
+
+paste("The mean absolute error for linear regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
+paste("Ridge R-Squared:", r2_ridge)
+
+paste("The mean absolute error for linear regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
+paste("Lasso R-Squared:", r2_lasso)
+
+paste("The mean absolute error for linear regression is ", xgb_mae, "and mape is", xgb_mape, "and rmse is ", xgb_rmse)
+paste("XGB R-Squared:", r2_xgb)
+
+paste("The mean absolute error for linear regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
+paste("Random Forest R-Squared:", r2_rf)
+
+```
+
+
+##### Test Prediction
+Now we will predict the test set using the best model. XGBoost gave the lowest mean absolute percentage error of 0.1172.
+```{r}
+test_data$price <- predict(xgb, test_data)
+
+# Attach prediction to the original dataset
+original_test$price <- expm1(test_data$price)
+
+submission_columns <- c("id", "price")
+
+submission <- original_test[, names(original_test) %in% submission_columns]
+
+write.csv(submission, file = 'submission.csv', row.names = FALSE)
 ```
