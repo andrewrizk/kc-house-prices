@@ -1,25 +1,52 @@
 ---
 title: "House Price Prediction"
 author: "Andrew Rizk"
+date: "26-05-2019"
 output:
-  pdf_document:
-    toc: yes
   html_document:
-    code_folding: hide
+    df_print: paged
+    toc: yes
+  pdf_document:
+    fig_caption: yes
     fig_height: 4.5
-    fig_width: 10
+    fig_width: 7.5
     highlight: tango
+    latex_engine: xelatex
     number_sections: yes
-    theme: cosmo
+    toc: yes
+  word_document:
+    fig_caption: yes
+    fig_height: 4.5
+    fig_width: 7.5
+    highlight: tango
     toc: yes
 ---
+#### 1. Introduction
+In this following practice, we will attempt to predict house prices in King Country in Seattle based on the House Prices Dataset on Kaggle: <https://www.kaggle.com/harlfoxem/housesalesprediction>. It includes homes sold between May 2014 and May 2015.
+
+The dataset presents different features of the houses that variably change the predictions. The data will require some work for cleaning and preprocessing to be ready for modeling.
+
+The steps of this practice will involve:
+1 - Data cleaning and preprocessing.
+2 - Exploratory data analysis.
+3 - Feature Engineering: this will involve transforming variables, creating new variables, and eliminating variables in favor of our predictions.
+4 - Correlations
+5 - Removing Outliers/Scaling/Adjusting Skewness
+6 - Modeling:
+    a. Linear Regressions
+    b. Ridge Regression
+    c. Lasso Regression
+    d. XGBoost
+    e. Random Forest
+7 - Model Comparison
 
 ```{r setup, include=FALSE, echo = FALSE}
 knitr::opts_chunk$set(echo = FALSE)
+
 ```
 
-#### Load Libraries
-```{r Libraries to be used for this project, Warnig=FALSE}
+#### 2. Load Libraries
+```{r Libraries to be used for this project, eval=TRUE, Warnig=FALSE}
 library(data.table)
 library(DataExplorer)
 library(ggplot2)
@@ -44,7 +71,8 @@ library(rpart.plot)
 library(ranger)
 ```
 
-#### Load Datasets
+#### 2. Load Datasets
+We will first load the datasets and create a price column for the test set so we can combine them together for further preprocessing.
 ```{r Datasets}
 # We will load the original datasets and keep them untouched if needed for later purposes
 original_train <- read.csv("house_price_train.csv", header = T)
@@ -69,16 +97,15 @@ cat("The combined dataset has ", dim(house_dataset)[1], "rows and ", dim(house_d
 
 ```
 
-#### Feature Removal
+#### 3. Feature Removal
 We can identify some features that don't add any value to the dataset due to their nature.
-The variable 'Id' is a key and will not have any impact in the final predicion.
-
+The variable 'Id' is a key and will not have any impact in the final predicion. Other features will be removed later after the feature engineering process.
 ```{r Feature removal}
 house_dataset <- house_dataset[,-which(names(house_dataset) == "id")]
 ```
 
-#### NA Discovery
-We need to clean NA values in all the columns and fill the empty cells with proper judgements based on each variable's condition.
+#### 4. NA Discovery
+We need to clean NA values in all the columns and impute null values (if present).
 First, we explore which columns have missing values.
 
 ```{r}
@@ -90,28 +117,26 @@ paste('There are', length(na.cols), 'columns with missing values')
 sort(colSums(sapply(house_dataset[na.cols], is.na)), decreasing = TRUE)
 
 ```
-Therefore no missing values are present in the dataset and we can continue with feature engineering
+Therefore no missing values are present in the dataset and we can continue with feature engineering.
 
-#### Data Structure
-Now we will check the structure of the dataset.
+#### 5. Data Structure
+Discovering the data structure and a quantitative summary of the variables.
 ```{r Dataset Structure and Features}
 # visualizing the dataset to know the structure and components of each variable
 str(house_dataset)
 summary(house_dataset)
 ```
 
-#### Factorize Numerical to Categories
-
-There are some numerical features that should be perseved as categorical ones, in order to gasp correctly the information inside those columns.
-If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they wont be used in any calculation. Note that "yr_built", "yr_renovated" will be factorized later after the EDA.
-
+#### 6. Factorize Numerical to Categories
+There are some numerical features that should be factorized as categorical ones, in order to gasp correctly the information inside those columns.
+If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they wont be used in any calculation. Note that some features will be factorized later after the EDA process.
 ```{r}
 #Specifying the columns that are counted as numeric
 columns <- c("condition", "grade", "waterfront", "zipcode")
 house_dataset[columns] <- lapply(house_dataset[columns], factor)
 ```
 
-#### EDA
+#### 7. EDA
 
 ```{r Structure and Target Variable}
 #Structure of dataset after factorizing
@@ -128,8 +153,9 @@ ggplot(house_train,aes(x= log10(price)))+geom_histogram(fill="dodgerblue3") + sc
 ```
 
 We will now create a new column to categorize the prices into 4 categories (Cheap, Medium, Expensive, Very Expensive) and visualize the results using leaflet. Though since the code below really slows down my Rmarkdown, I decided to comment it out.
-
 ```{r}
+#We will now create a new column to categorize the prices into 4 categories (Cheap, Medium, Expensive, Very Expensive) and visualize the results using leaflet. Though since the code below really slows down my Rmarkdown, I decided to comment it out.
+
 # house_train_temp <- house_train
 # quantile(house_train_temp$price)
 # 
@@ -169,11 +195,9 @@ We will now create a new column to categorize the prices into 4 categories (Chea
 
 ```
 
-
+##### 7.1 Visual Representations (All Variables vs Price)
 We will now visualize each numeric feature with the target variable to see how the price varies with the variation in the independent variables.
-
 ```{r Visualizing Variables with Price}
-
 # We will now visualize all numeric columns against the house price
 numeric_var <- names(house_train)[which(sapply(house_train, is.numeric))]
 numeric_var
@@ -191,7 +215,7 @@ for (i in seq_along(numeric_var)) {
 ```
 
 Now that we have a general idea about how the price varies with each variable, we will take each variable and analyze it separately with the price.
-
+##### 7.2 Bedrooms
 ```{r Bedrooms}
 table(house_dataset$bedrooms)
 #From the above table we can see the majority of house has between 1-8 or 1-9 bedrooms and a few outliers having more than that
@@ -227,6 +251,7 @@ geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme
 
 ```
 
+##### 7.3 Bathrooms
 ```{r Bathrooms}
 table(house_dataset$bathrooms)
 #From the above table we can see the houses have a range from 0.5 to 8 bathrooms
@@ -254,6 +279,7 @@ geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme
 
 ```
 
+##### 7.4 Floors
 ```{r Floors}
 table(house_dataset$floors)
 
@@ -277,7 +303,7 @@ geom_boxplot(alpha=0.6)+scale_fill_manual(values=getPalette(colourCount))+ theme
 ```
 
 
-
+##### 7.5 House Condition
 ```{r House Condition}
 table(house_dataset$condition)
 
@@ -290,7 +316,7 @@ geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ them
 
 ```
 
-
+##### 7.6 Water Front
 ```{r Water Front}
 table(house_dataset$waterfront)
 # Most of the houses in the dataset don't have a waterfront, only 163 of all the houses do.
@@ -303,6 +329,7 @@ ggplot(house_train,aes(waterfront,log10(price),fill=factor(waterfront)))+
 geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ theme_minimal()+labs(x="WaterFront", y="Log_Price", fill = "WaterFront")
 ```
 
+##### 7.7 Sqft_living
 ```{r Sqft_living}
 
 ggplot(data = house_train, aes(sqft_living, price)) +
@@ -314,6 +341,7 @@ ggplot(data = house_train, aes(sqft_living, price)) +
 
 ```
 
+##### 7.8 Sqft_living15
 ```{r Sqft_living15}
 # Living room area in 2015(implies-- some renovations) This might or might not have affected the lotsize area
 
@@ -326,6 +354,7 @@ ggplot(data = house_train, aes(sqft_living15, price)) +
 
 ```
 
+##### 7.9 Sqft_lot
 ```{r Sqft_lot}
 
 ggplot(data = house_train, aes(sqft_lot, price)) +
@@ -336,6 +365,8 @@ ggplot(data = house_train, aes(sqft_lot, price)) +
     geom_smooth(method="lm",se=F, color = "red")
 
 ```
+
+##### 7.10 Sqft_lot15
 ```{r Sqft_lot15}
 
 # Sqft_lot15 is the lot area in 2015 (implies-- some renovations) This might or might not have affected the lotsize area
@@ -349,6 +380,7 @@ ggplot(data = house_train, aes(sqft_lot15, price)) +
 
 ```
 
+##### 7.11 Sqft_above
 ```{r Sqft_above}
 
 ggplot(data = house_train, aes(sqft_above, price)) +
@@ -359,6 +391,8 @@ ggplot(data = house_train, aes(sqft_above, price)) +
     geom_smooth(method="lm",se=F, color = "red")
 
 ```
+
+##### 7.12 Sqft_basement
 ```{r Sqft_basement}
 
 ggplot(data = house_train, aes(sqft_basement, price)) +
@@ -370,6 +404,7 @@ ggplot(data = house_train, aes(sqft_basement, price)) +
 
 ```
 
+##### 7.13 Views
 ```{r Views}
 
 #How many times the house has been viewed
@@ -382,6 +417,7 @@ ggplot(house_train %>% group_by(view) %>% summarise(average_price = mean(price))
 
 ```
 
+##### 7.14 Grade
 ```{r Grade}
 
 table(house_dataset$grade)
@@ -404,6 +440,7 @@ geom_boxplot(alpha=0.6)+scale_fill_manual(values= getPalette(colourCount))+ them
 
 ```
 
+##### 7.15 Year Built
 ```{r Year Built}
 table(house_dataset$yr_built)
 
@@ -427,6 +464,7 @@ ggplot(yr_bin[1:17227,] %>% group_by(year_built_bin) %>% summarise(average_price
 
 ```
 
+##### 7.16 Year Renovated
 ```{r Year Renovated}
 table(house_dataset$yr_renovated)
 
@@ -450,6 +488,7 @@ ggplot(yr_ren_bin[1:17227,] %>% group_by(year_ren_bin) %>% summarise(average_pri
 
 ```
 
+##### 7.17 House Price Binning
 ```{r}
 quantile(house_train$price)
 # We can bin the prices using the above quantiles or using to selected ranges visualize counts per bin
@@ -471,9 +510,8 @@ ggplot(house_dataset[house_dataset$train_test == "train",], aes(price_bin)) + ge
 
 ```
 
-
-#### Feature Engineering/Creation
-
+#### 8. Feature Engineering/Creation
+In this section we will do some variable transformation and variable creation to improve our final results. Some variables will be created however will be eliminated later by our regularization model as we apply penalties using whether Lasso or Ridge regressions 
 ```{r}
 
 house_dataset$total_sf15 <- house_dataset$sqft_living15 + house_dataset$sqft_lot15
@@ -483,6 +521,10 @@ house_dataset$date <- as.character(house_dataset$date)
 house_dataset = house_dataset %>% mutate(YearSold = str_sub(date, -4, -1))
 house_dataset$YearSold <- as.numeric(house_dataset$YearSold)
 
+
+# creating a binary feature if the house has a basement or not
+house_dataset <- house_dataset %>% mutate(has_basement = ifelse(sqft_basement == 0, 0, 1))
+house_dataset$has_basement <- as.factor(house_dataset$has_basement)
 
 # We will create a dummy variable NewHouse using the YearSold and YearBuild. If the two values are equal then it's a new house and will be evaluated as 1 otherwise it will be 0
 house_dataset$NewHouse <- ifelse(house_dataset$YearSold == house_dataset$yr_built, 1, 0)
@@ -495,10 +537,8 @@ house_dataset <- house_dataset %>% mutate(Age = ifelse(yr_renovated != 0, YearSo
 
 ```
 
-#### Correlations
-
-Correlations are used to identify which variable has more correlation with our target variable. We will explore correlations using a heat map for a better understanding of the data.
-Again, it is important to note that some categorical features correlations are calculated within the heat map due to their numeric nature. So we will not take them into consideration.
+#### 9. Correlations
+Correlations are used to identify which variable has more correlation with our target variable. We will explore correlations using a heat map for a better understanding of the data. Again, it is important to note that some categorical features correlations are calculated within the heat map due to their numeric nature. So we will not take them into consideration.
 
 ```{r}
 #create a set of numeric variables to see correlations with the sale price
@@ -513,14 +553,11 @@ corrplot(num_correlations, method = "pie")
 
 ```
 
-#### Outliers
-
-Outliers represent a big problem for numerical variables and can decrease the quality of any model and causes bias in our predeictions. We will look at numerical variables manually using ggplot and remove outliers accordingly.
+#### 10. Outliers
+Outliers represent a big problem for numerical variables and can decrease the quality of any model and cause bias in our predeictions. We will look at numerical variables manually using ggplot and remove outliers accordingly. I tried to use a for loop to remove outliers however many values ended up being removed so I choose some features manually and removed outliers visually.
 
 Train and test data will be splits for outlier removal then we will bind them again for further preprocessing.
 It is also important to note than not all columns with numeric values are classified as numeric variables. Some variables represent quality for example.
-
-
 ```{r Outlier Detection and Removal}
 
 train <- house_dataset[house_dataset$train_test == 'train',]
@@ -558,12 +595,13 @@ nrow(train)
 
 #Since the too many rows are deleted, we will comment it out and rather remove outliers manually by looking at the visualizations for each variable against the target variable
 
-train <- subset(train, bedrooms < 11)
+train <- subset(train, bedrooms < 9)
 train <- subset(train, bathrooms <= 6)
-train <- subset(train, sqft_living < 10000)
+train <- subset(train, floors <= 3.5)
+train <- subset(train, sqft_living < 8000)
 train <- subset(train, sqft_lot < 750000)
-train <- subset(train, sqft_lot15 < 500000)
-train <- subset(train, sqft_above < 8500)
+train <- subset(train, sqft_lot15 < 375000)
+train <- subset(train, sqft_above < 5500)
 train <- subset(train, sqft_basement < 3000)
 
 # We can also see that our house prices lie in a lower range of prices. Some of the houses have a really high price than most in the dataset so we will remove those so that they dont affect our model
@@ -575,7 +613,7 @@ house_dataset <- rbind(train, test)
 
 
 ```
-#### Skewness
+#### 11. Skewness
 ```{r}
 # Adjusting Skewness in Target Variable
 # Histogram to see the distribution of the house prices
@@ -585,10 +623,9 @@ house_dataset$price <- log1p(house_dataset$price)
 
 # Visualizing Target Variable again
 ggplot(house_dataset,aes(x=price))+geom_density(fill="dodgerblue3") + scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) + theme_minimal()
-plot_missing(house_dataset)
 ```
 
-#### Factorizing Features
+#### 12. Factorizing Features
 There are some numerical features that should be perseved as categorical ones, in order to gasp correctly the information inside those columns.
 If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they cant be used in any calculation.
 ```{r}
@@ -616,7 +653,7 @@ house_dataset <- house_dataset[,-which(names(house_dataset) == "price_bin")]
 
 ```
 
-#### Scaling
+#### 13. Scaling
 We will now standardize all the numeric features since the range of the data values varies widely. We will scale the variables so that their scale varies around zero. This is done so that the variance of the features are in the same range. If a feature's variance in orders of magnitude more than the variance of other features, that particular feature might dominate other features in the dataset, which is not something we want happening in our model.
 ```{r}
 # Feature scaling
@@ -625,13 +662,14 @@ numericFeatures = c(FALSE, numericFeatures) # No need to scale price
 house_dataset[numericFeatures] = sapply(house_dataset[numericFeatures], scale)
 ```
 
-#### More Feature Engineering
+#### 14. More Feature Engineering
+We will now create bins for both longitude and latitude since some models dont accept factors more than 53 categories. Therefore some of these bins will be used later in some models and for others we will normally use longitude and latitude.
 ```{r}
 max(house_dataset$long) #-> 6.395034
 min(house_dataset$long) #->-2.168754
 
 
-house_dataset <- house_dataset %>% mutate(long_bin = ifelse(long >= -2.168754 & long < -1, 'long_1',
+house_dataset <- house_dataset %>% mutate(long_bin = ifelse(long >= -2.91653 & long < -1, 'long_1',
                                                             ifelse(long >= -1 & long < 0, 'long_2',
                                                                    ifelse(long >= 0 & long < 1, 'long_3',
                                                                           ifelse(long >= 1 & long < 2, 'long_4',
@@ -644,7 +682,7 @@ max(house_dataset$lat) #-> 1.569772
 min(house_dataset$lat) #-> -2.916866
 
 
-house_dataset <- house_dataset %>% mutate(lat_bin = ifelse(lat >= -2.916866 & lat < -2.3, 'lat_1',
+house_dataset <- house_dataset %>% mutate(lat_bin = ifelse(lat >= -2.916532 & lat < -2.3, 'lat_1',
                                                             ifelse(lat >= -2.3 & lat < -1.6, 'lat_2',
                                                                    ifelse(lat >= -1.6 & lat < -1, 'lat_3',
                                                                           ifelse(lat >= -1 & lat < -0.4, 'lat_4',
@@ -655,11 +693,11 @@ house_dataset <- house_dataset %>% mutate(lat_bin = ifelse(lat >= -2.916866 & la
 
 house_dataset$long_bin <- as.factor(house_dataset$long_bin)
 house_dataset$lat_bin <- as.factor(house_dataset$lat_bin)
+
 ```
 
-#### Data split
+#### 15. Data split
 To facilitate the data cleaning and feature engineering we merged train and test datasets. We now split them again to create our final model.
-
 ```{r Data split}
 ## Train / Test split
 # Now we split the dataset again for model training
@@ -674,7 +712,7 @@ test_data <- test_data[,-which(names(test_data) == "train_test")]
 
 ```
 
-#### Train / Validation split
+#### 15.1 Train / Validation split
 We are going to split the annotated dataset in training and validation for the later evaluation of our regression models
 ```{r Data Split Function}
 # Function to split a dataset into training and validation.
@@ -699,8 +737,8 @@ dim(validation)
 
 ```
 
-#### Modeling
-##### Regression Metrics
+#### 16. Modeling
+##### 16.1 Regression Metrics
 First we will define three metric functions to measure the strength and accuracy of our model.
 ```{r Metric Functions}
 
@@ -721,18 +759,21 @@ rmse<-function(real,predicted){
 
 ```
 
-##### Linear Regression
+##### 16.2 Linear Regression
 We will now start with a baseline linear model to evaluate our prediction and further we will use regularization methods to do feature elimination and optimize our results
 
 ```{r Linear Regression}
-
 training$bathrooms <- as.factor(training$bathrooms)
 validation$bathrooms <- as.factor(validation$bathrooms)
 training$bedrooms <- as.factor(training$bedrooms)
 validation$bedrooms <- as.factor(validation$bedrooms)
 
-lm_model = lm(formula = price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat,
+lm_model = lm(formula = price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat + has_basement,
            data = training)
+```
+
+###### 16.2.1 Evaluation
+```{r}
 # Summary of the model
 summary(lm_model)
 
@@ -760,8 +801,6 @@ ggplot(validation,aes(x=expm1(price),y=expm1(pred)))+geom_point()+geom_smooth(me
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
-help("geom_smooth")
-
 paste("R-Squared:", summary(lm_model)$r.squared)
 
 ```
@@ -772,8 +811,7 @@ Ridge and Lasso Regressions are similar in terms of methodology, the superficial
 
 In summary, using Ridge regression and Lasso regression both helps with variable elimination however Lasso is mainly useful for excluding useless variables from our regression equation which makes the final prediction equation simpler. On the other hand Ridge will be useful when most of our features are good for the prediction.
 
-
-##### Ridge Regression
+##### 16.3 Ridge Regression
 The alpha parameter represents the penalty in the regularization process. For Ridge regression, alpha value of 0 is used while in Lasso we use an alpha value of 1.
 ```{r Ridge Regression, warning=FALSE}
 lambdas <- 10^seq(-4, 0, by = .05)
@@ -792,7 +830,7 @@ ridge_model <- train(price ~ ., data = training,
 ```
 
 
-###### Ridge Evaluation
+###### 16.3.1 Ridge Evaluation
 Plotting the RMSE for the different lambda values, we can see the impact of this parameter in the model performance.
 Small values seem to work better for this dataset.
 Plotting the coefficients for different lambda values. As expected the larger the lambda (lower Norm) value the smaller the coefficients of the features. However, as we can see at the top of the features, there is no feature selection.
@@ -828,7 +866,7 @@ paste("Ridge R-Squared:", r2_ridge)
 
 ```
 
-##### Lasso Regression
+##### 16.4 Lasso Regression
 The only thing that changes between Lasso and Ridge is the alpha parameter. We will use the same sequence of lambda values used in ridge and apply lasso by changing alpha into 1. a value of 1 for alpha means that Lasso applies a higher penalty in the regularization more than in Ridge.
 ```{r Lasso Regression, warning=FALSE}
 set.seed(121)
@@ -844,7 +882,7 @@ lasso_model <- train(price ~ ., data = training,
                tuneGrid = expand.grid(alpha = 1, lambda = lambdas))
 ```
 
-###### Lasso Evaluation
+###### 16.4.1 Lasso Evaluation
 ```{r Lasso Evaluation}
 summary(lasso_model)
 plot(lasso_model)
@@ -877,18 +915,19 @@ r2_lasso <- 1- sse_lasso/sst_lasso
 paste("Lasso R-Squared:", r2_lasso)
 ```
 
-##### Defining Formula
-Defining Formula to be used for the following models
+##### 16.5 Defining Formulas For XGB & RF
+Defining Formula to be used for the following models. We will definte two formulas and they will be used differently based on the model. Next we will try using XGBoost and Random Forest models and we will check for improvement.
 ```{r}
 # we start defining a formula
 formula1 <-as.formula(price ~  bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade
              + sqft_basement + sqft_living15 + sqft_lot15 + NewHouse + Age + long + lat)
 
-formula2 <- as.formula(price ~bedrooms + bathrooms + sqft_living + sqft_lot + sqft_above + floors + waterfront + view + condition + grade + sqft_basement + zipcode + sqft_living15 + sqft_lot15 + yr_built + NewHouse + Age + long + lat)
+formula2 <- as.formula(price ~.)
 
 ```
 
-##### XGBoost
+##### 16.6 XGBoost
+XGBoost is an implementation of gradient boosted decision trees designed for speed and performance. We will try using XGBoost with grid search using the parameters below. The initial grid search was performed and best parameters were selected for identifying the grid parameters. However, for convenience I commented out the grid search part for faster evaluation and knitting processes.
 ```{r}
 
 my_control <- trainControl(method = "cv", number = 3)
@@ -900,13 +939,13 @@ my_control <- trainControl(method = "cv", number = 3)
 #                        colsample_bytree = 0.7,
 #                        min_child_weight = 3, subsample = c(0.5, 1))
 
-xgbGrid <- expand.grid(nrounds = 1000,
+xgbGrid <- expand.grid(nrounds = 1500,
                        max_depth = 15,
-                       eta = .1,
+                       eta = 0.05,
                        gamma = 0.2,
                        colsample_bytree = 0.7,
                        min_child_weight = 1,
-                       subsample = 1)
+                       subsample = 0.5)
 
 xgb = train(formula2, data = training,
                    method = "xgbTree",trControl = my_control,
@@ -915,7 +954,7 @@ xgb = train(formula2, data = training,
 
 ```
 
-###### XGBoost Evaluation
+###### 16.6.1 XGBoost Evaluation
 ```{r}
 summary(xgb)
 
@@ -945,10 +984,10 @@ r2_xgb <- 1- sse_xgb/sst_xgb
 paste("XGB R-Squared:", r2_xgb)
 ```
 
-##### Random Forest
+##### 16.7 Random Forest
+Since RF does not accept factors more than 53 levels we will remove factors with more than 53 levels
+Therefore, we will use a separate dataset where we convert zipcode into a numeric variable and create a new formula with hand-picked variables to be used for the the model.
 ```{r Random Forest Base Model}
-# Since RF does not accept factors more than 53 levels we will remove factors with more than 53 levels
-# Therefore, we will use a separate dataset where we convert zipcode into a numeric variable and then test our model
 
 rftraining <- training
 rfvalidation <- validation
@@ -970,7 +1009,8 @@ model_imp$IncNodePurity <- round(model_imp$IncNodePurity, 2)
 model_imp
 
 ```
-###### Random Forest Evaluation
+
+###### 16.7.1 Random Forest Evaluation
 ```{r RF Evaluation}
 summary(rf_0)
 plot(rf_0)
@@ -982,7 +1022,7 @@ rf0_mae <- mae(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$
 rf0_mape <- mape(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$rf0_pred))
 rf0_rmse <- rmse(real = expm1(rfvalidation$price), predicted = expm1(rfvalidation$rf0_pred))
 
-paste("The mean absolute error for linear regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
+paste("The mean absolute error for Random Forest is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
 
 # Plotting predictions vs real
 ggplot(rfvalidation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
@@ -1000,7 +1040,7 @@ paste("Random Forest R-Squared:", r2_rf)
 
 ```
 
-###### Random Forest Tuning
+###### 16.7.2 Random Forest Tuning
 ```{r Random Forest Tuning, eval=FALSE}
 # tuneGrid=data.table(expand.grid(mtry=c(5,15),
 #                                 splitrule='variance',
@@ -1038,15 +1078,15 @@ rf_tune$finalModel
 # and visualize a CV summary using the established metric
 plot(rf_tune)
 
-
 rf_tuned<-ranger(formula, data=rftraining, num.trees=500,
                    mtry=rf_tune$bestTune$mtry,
                    min.node.size=rf_tune$bestTune$min.node.size)
 
 ```
-After hyper-parameter optimization the coefficient of determination has only improved from 0.69 to 0.71.
 
-###### Optimized Random Forest Evaluation
+After hyper-parameter optimization, model evaluation has not 
+
+###### 16.7.3 Optimized Random Forest Evaluation
 ```{r Optimized RF Evaluation, eval=FALSE}
 
 
@@ -1071,31 +1111,29 @@ ggplot(validation,aes(x=expm1(price),y=expm1(rft_pred)))+geom_point()+geom_smoot
 
 ```
 
-##### Model Comparison
+##### 17. Model Comparison
 Now we will compare all the implemented models based on all MAE, MAPE, RMSE, and R-squared values. The best model will be used to predict the test set.
-
 ```{r}
 
 paste("The mean absolute error for linear regression is ", lm_mae, "and mape is", lm_mape, "and rmse is ", lm_rmse)
 paste("Linear Regression R-Squared:", summary(lm_model)$r.squared)
 
-paste("The mean absolute error for linear regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
+paste("The mean absolute error for ridge regression is ", ridge_mae, "and mape is", ridge_mape, "and rmse is ", ridge_rmse)
 paste("Ridge R-Squared:", r2_ridge)
 
-paste("The mean absolute error for linear regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
+paste("The mean absolute error for lasso regression is ", lasso_mae, "and mape is", lasso_mape, "and rmse is ", lasso_rmse)
 paste("Lasso R-Squared:", r2_lasso)
 
-paste("The mean absolute error for linear regression is ", xgb_mae, "and mape is", xgb_mape, "and rmse is ", xgb_rmse)
-paste("XGB R-Squared:", r2_xgb)
+paste("The mean absolute error for xgboost regression is ", xgb_mae, "and mape is", xgb_mape, "and rmse is ", xgb_rmse)
+paste("XGBoost R-Squared:", r2_xgb)
 
-paste("The mean absolute error for linear regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
+paste("The mean absolute error for random forest regression is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
 paste("Random Forest R-Squared:", r2_rf)
 
 ```
 
-
-##### Test Prediction
-Now we will predict the test set using the best model. XGBoost gave the lowest mean absolute percentage error of 0.1172.
+##### 18. Test Prediction
+Now we will predict the test set using the best model. XGBoost gave the lowest mean absolute percentage error of 0.116.
 ```{r}
 test_data$price <- predict(xgb, test_data)
 
