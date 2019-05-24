@@ -1,3 +1,5 @@
+### House Price Prediction in King County, Seattle
+
 In this following practice, we will attempt to predict house prices in King Country in Seattle based on the House Prices Dataset on Kaggle: <https://www.kaggle.com/harlfoxem/housesalesprediction>. It includes homes sold between May 2014 and May 2015.
 
 The dataset presents different features of the houses that variably change the predictions. The data will require some work for cleaning and preprocessing to be ready for modeling.
@@ -16,4 +18,4 @@ The steps of this practice will involve:
     e. Random Forest
 7 - Model Comparison
 
-* Final model was selected as XGBoost with a MAPE of 0.114 *
+* Final model was selected as XGBoost with a MAPE of 0.114 
