@@ -6,6 +6,7 @@ output:
   html_document:
     df_print: paged
     toc: yes
+    highlight: tango
   pdf_document:
     fig_caption: yes
     fig_height: 4.5
@@ -21,6 +22,11 @@ output:
     highlight: tango
     toc: yes
 ---
+![](https://static-frm.ie.edu/exponential-learning/wp-content/uploads/sites/22/2017/06/Logo_Human-Sciences.png)
+
+#### Github link
+<https://github.com/andrewrizk/kc-house-price>
+
 #### 1. Introduction
 In this following practice, we will attempt to predict house prices in King Country in Seattle based on the House Prices Dataset on Kaggle: <https://www.kaggle.com/harlfoxem/housesalesprediction>. It includes homes sold between May 2014 and May 2015.
 
@@ -40,7 +46,7 @@ The steps of this practice will involve:
     e. Random Forest
 7 - Model Comparison
 
-* Final model was selected as XGBoost with a MAPE of 0.116 *
+* Final model was selected as XGBoost with a MAPE of 0.114 *
 
 ```{r setup, include=FALSE, echo = FALSE}
 knitr::opts_chunk$set(echo = FALSE)
@@ -728,7 +734,7 @@ splitdf <- function(dataframe, seed=NULL) {
 }
 
 # Applying the function to the training_data
-splits <- splitdf(train_data, seed = 11)
+splits <- splitdf(train_data, seed = 8)
 
 # Splitting the data into train set and validation set
 training <- splits$trainset
@@ -798,7 +804,7 @@ lm_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$pre
 paste("The mean absolute error for linear regression is ", lm_mae, "and mape is", lm_mape, "and rmse is ", lm_rmse)
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+ggplot(validation,aes(x=expm1(price),y=expm1(pred)))+geom_point()+geom_smooth(method = "lm", col = 'red') + theme_minimal() + labs(x="Real", y="Prediction") +
   ggtitle(paste('RMSE:', format(round(lm_rmse, 4)), " and MAPE -->", format(round(lm_mape, 4)))) + labs(subtitle = paste(" and Mean Price Error:", format(round(lm_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
@@ -854,7 +860,7 @@ paste("The mean absolute error for Ridge regression is ", ridge_mae, "and mape i
 plot(varImp(ridge_model), top = 20) # 20 most important features
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(ridge_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") + ggtitle(paste("Ridge Regression -->",'RMSE:', format(round(ridge_rmse, 4)), " and MAPE -->", format(round(ridge_mape, 4)))) + labs(subtitle = paste(" and Mean Price Error:", format(round(ridge_mae,4)))) +
+ggplot(validation,aes(x=expm1(price),y=expm1(ridge_pred)))+geom_point()+geom_smooth(method = "lm", col = 'red') + theme_minimal() + labs(x="Real", y="Prediction") + ggtitle(paste("Ridge Regression -->",'RMSE:', format(round(ridge_rmse, 4)), " and MAPE -->", format(round(ridge_mape, 4)))) + labs(subtitle = paste(" and Mean Price Error:", format(round(ridge_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
@@ -902,7 +908,7 @@ paste("The mean absolute error for Lasso regression is ", lasso_mae, "and mape i
 plot(varImp(lasso_model), top = 20) # 20 most important features
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(lasso_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+ggplot(validation,aes(x=expm1(price),y=expm1(lasso_pred)))+geom_point()+geom_smooth(method = "lm", col= 'red') + theme_minimal() + labs(x="Real", y="Prediction") +
   ggtitle(paste("Lasso Regression -->",'RMSE:', format(round(lasso_rmse, 4)), " and MAPE -->", format(round(lasso_mape, 4)))) +
   labs(subtitle = paste(" and Mean Price Error:", format(round(lasso_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
@@ -971,7 +977,7 @@ paste("The mean absolute error for xgboost is ", xgb_mae, "and mape is", xgb_map
 plot(varImp(xgb), top = 20)
 
 # Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(xgb_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+ggplot(validation,aes(x=expm1(price),y=expm1(xgb_pred)))+geom_point()+geom_smooth(method = "lm", col = 'red') + theme_minimal() + labs(x="Real", y="Prediction") +
   ggtitle(paste("XGBoost Regression -->",'RMSE:', format(round(xgb_rmse, 4)), " and MAPE -->", format(round(xgb_mape, 4)))) +
   labs(subtitle = paste(" and Mean Price Error:", format(round(xgb_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
@@ -1027,7 +1033,7 @@ rf0_rmse <- rmse(real = expm1(rfvalidation$price), predicted = expm1(rfvalidatio
 paste("The mean absolute error for Random Forest is ", rf0_mae, "and mape is", rf0_mape, "and rmse is ", rf0_rmse)
 
 # Plotting predictions vs real
-ggplot(rfvalidation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+ggplot(rfvalidation,aes(x=expm1(price),y=expm1(rf0_pred)))+geom_point()+geom_smooth(method = "lm", col = 'red') + theme_minimal() + labs(x="Real", y="Prediction") +
   ggtitle(paste("Random Forest -->",'RMSE:', format(round(rf0_rmse, 4)), " and MAPE -->", format(round(rf0_mape, 4)))) +
   labs(subtitle = paste(" and Mean Price Error:", format(round(rf0_mae,4)))) +
   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
@@ -1133,7 +1139,7 @@ paste("Random Forest R-Squared:", r2_rf)
 ```
 
 ##### 18. Test Prediction
-Now we will predict the test set using the best model. XGBoost gave the lowest mean absolute percentage error of 0.116.
+Now we will predict the test set using the best model. XGBoost gave the lowest mean absolute percentage error of 0.114.
 ```{r}
 test_data$price <- predict(xgb, test_data)
 
