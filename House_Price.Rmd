@@ -1,5 +1,5 @@
 ---
-title: "House Price Prediction"
+title: "King County, House Price Prediction"
 author: "Andrew Rizk"
 date: "26-05-2019"
 output:
@@ -39,6 +39,8 @@ The steps of this practice will involve:
     d. XGBoost
     e. Random Forest
 7 - Model Comparison
+
+* Final model was selected as XGBoost with a MAPE of 0.116 *
 
 ```{r setup, include=FALSE, echo = FALSE}
 knitr::opts_chunk$set(echo = FALSE)
@@ -1050,7 +1052,6 @@ tuneGrid=data.table(expand.grid(mtry=c(15),
                                 splitrule='variance',
                                 min.node.size=c(2,5,10)))
 
-dim(tuneGrid)
 train_control_config <- trainControl(method = "repeatedcv", 
                                      number = 5, 
                                      repeats = 1,
@@ -1084,30 +1085,29 @@ rf_tuned<-ranger(formula, data=rftraining, num.trees=500,
 
 ```
 
-After hyper-parameter optimization, model evaluation has not 
+After hyper-parameter optimization, model evaluation has not revealed any improvement in the original model. Therefore, XGBoost remains the best score of all implemented models.
 
 ###### 16.7.3 Optimized Random Forest Evaluation
 ```{r Optimized RF Evaluation, eval=FALSE}
 
-
-rft_pred <- predict(rf_tuned, validation)
-
-mape(real=validation$price, predicted = as.numeric(rft_pred))
-qplot(test_rf, test_rf1)
-
-
-# Since the price was log transformed we will recompute the error metrics by reversing the log transformation
-rft_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
-rft_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
-rft_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
-
-paste("The mean absolute error for linear regression is ", rft_mae, "and mape is", rft_mape, "and rmse is ", rft_rmse)
-
-# Plotting predictions vs real
-ggplot(validation,aes(x=expm1(price),y=expm1(rft_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
-  ggtitle(paste("Optimized Random Forest -->",'RMSE:', format(round(rft_rmse, 4)), " and Mean Price Error:", format(round(rft_mae,4)))) +
-  scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
-  scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+# rft_pred <- predict(rf_tuned, validation)
+# 
+# mape(real=validation$price, predicted = as.numeric(rft_pred))
+# qplot(test_rf, test_rf1)
+# 
+# 
+# # Since the price was log transformed we will recompute the error metrics by reversing the log transformation
+# rft_mae <- mae(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+# rft_mape <- mape(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+# rft_rmse <- rmse(real = expm1(validation$price), predicted = expm1(validation$rft_pred))
+# 
+# paste("The mean absolute error for linear regression is ", rft_mae, "and mape is", rft_mape, "and rmse is ", rft_rmse)
+# 
+# # Plotting predictions vs real
+# ggplot(validation,aes(x=expm1(price),y=expm1(rft_pred)))+geom_point()+geom_smooth(method = "lm") + theme_minimal() + labs(x="Real", y="Prediction") +
+#   ggtitle(paste("Optimized Random Forest -->",'RMSE:', format(round(rft_rmse, 4)), " and Mean Price Error:", format(round(rft_mae,4)))) +
+#   scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+#   scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
 
 ```
 
@@ -1145,4 +1145,5 @@ submission_columns <- c("id", "price")
 submission <- original_test[, names(original_test) %in% submission_columns]
 
 write.csv(submission, file = 'submission.csv', row.names = FALSE)
+
 ```
